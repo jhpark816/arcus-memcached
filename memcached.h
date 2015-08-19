@@ -35,6 +35,8 @@
 
 #include "sasl_defs.h"
 
+#define DETECT_LONG_REQUEST
+
 /* This is the address we use for admin purposes.  For example, doing stats
  * and heart beats from arcus_zk.
  * We count these connections separately from regular client connections.
@@ -600,6 +602,50 @@ struct conn {
     bool io_blocked;
     bool premature_notify_io_complete;
 };
+
+#ifdef DETECT_LONG_REQUEST
+
+/* long request command number */
+/* sop get    : number 0       */
+/* lop insert : number 1       */
+/* lop delete : number 2       */
+/* lop get    : number 3       */
+/* bop delete : number 4       */
+/* bop get    : number 5       */
+/* bop count  : number 6       */
+/* bop gbp    : number 7       */
+#define DETECT_LONGQ_BASE 4000
+#define DETECT_COMMAND_NUM 8
+#define DETECT_LONGQ_SAVE_SIZE 20
+#define DETECT_LONGQ_PER_BUFFER_SIZE 6000
+#define DETECT_LONGQ_BUFFER_SIZE 50000 /* 50 * KB */
+#define DETECT_INPUT_SIZE 300 /* the size of input(time, ip, command, bool) */
+struct detect_longq_buffer
+{
+    char *data;
+    uint32_t offset;
+};
+
+struct detect_longq_key
+{
+    char data[DETECT_LONGQ_SAVE_SIZE][DETECT_INPUT_SIZE];
+    uint32_t count;
+};
+
+struct detect_longq_global {
+    char *returnstr;
+    char cmdstr[DETECT_INPUT_SIZE];
+    char inputstr[DETECT_INPUT_SIZE];
+    uint32_t longcount[DETECT_COMMAND_NUM];
+    uint32_t base;
+    bool on_checking;
+    bool on_detecting;
+    struct detect_longq_buffer buffer[DETECT_COMMAND_NUM];
+    struct detect_longq_key key[DETECT_COMMAND_NUM];
+    pthread_mutex_t lock;
+};
+struct detect_longq_global detlongq;
+#endif
 
 /*
  * Functions
