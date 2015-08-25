@@ -633,6 +633,7 @@ struct detect_longq_key
 };
 
 struct detect_longq_global {
+    int retsfd;
     char *returnstr;
     char cmdstr[DETECT_INPUT_SIZE];
     char inputstr[DETECT_INPUT_SIZE];
