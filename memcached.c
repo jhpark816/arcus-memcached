@@ -7948,7 +7948,7 @@ static char* detlongq_keystr(char* key, int cmdnum, uint32_t count)
     if (str == NULL) {
         mc_logger->log(EXTENSION_LOG_WARNING, NULL,
                 "Can't allocate detect long request key buffer\n");
-        return "no";
+        return NULL;
     }
 
     /* how many long request enterd */
@@ -8114,7 +8114,7 @@ static bool detlongq_process(conn *c, char* key, int cmdnum, uint32_t count)
     pthread_mutex_lock(&detlongq.lock);
     if (detlongq.on_detecting) {
         cmdstr = detlongq_keystr(key, cmdnum, count);
-        if (strcmp(cmdstr, "no") != 0) {
+        if (cmdstr != NULL && strcmp(cmdstr, "no") != 0) {
             detlongq_write(c->client_ip, cmdstr, cmdnum);
         }
         free(cmdstr);
