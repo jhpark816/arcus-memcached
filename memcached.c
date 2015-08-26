@@ -7928,7 +7928,7 @@ static void detlongq_shorted(char *str, int cmdnum)
     }
 }
 
-static bool detlongq_checkey(char *key, int cmdnum)
+static bool detlongq_keycheck(char *key, int cmdnum)
 {
     int ii;
 
@@ -7951,33 +7951,35 @@ static char* detlongq_keystr(char* key, int cmdnum, uint32_t count)
         return "no";
     }
 
+    /* how many long request enterd */
     detlongq.longcount[cmdnum]++;
-    if (detlongq_checkey(key, cmdnum)) {
+    if (detlongq_keycheck(key, cmdnum)) {
+        /* long request command saved count */
         detlongq.key[cmdnum].count++;
         switch(cmdnum) {
         case 0 :
-            sprintf(str, "sop get %s get_count : %d", key, count);
+            snprintf(str, DETECT_INPUT_SIZE, "sop get %s get_count : %d", key, count);
             break;
         case 1 :
-            sprintf(str, "lop insert %s", key);
+            snprintf(str, DETECT_INPUT_SIZE, "lop insert %s", key);
             break;
         case 2 :
-            sprintf(str, "lop delete %s del_count : %d", key, count);
+            snprintf(str, DETECT_INPUT_SIZE, "lop delete %s del_count : %d", key, count);
             break;
         case 3 :
-            sprintf(str, "lop get %s get_count : %d", key, count);
+            snprintf(str, DETECT_INPUT_SIZE, "lop get %s get_count : %d", key, count);
             break;
         case 4 :
-            sprintf(str, "bop delete %s del_count : %d", key, count);
+            snprintf(str, DETECT_INPUT_SIZE, "bop delete %s del_count : %d", key, count);
             break;
         case 5 :
-            sprintf(str, "bop get %s get_count : %d", key, count);
+            snprintf(str, DETECT_INPUT_SIZE, "bop get %s get_count : %d", key, count);
             break;
         case 6 :
-            sprintf(str, "bop count %s count : %d", key, count);
+            snprintf(str, DETECT_INPUT_SIZE, "bop count %s count : %d", key, count);
             break;
         case 7 :
-            sprintf(str, "bop gbp %s get_count : %d", key, count);
+            snprintf(str, DETECT_INPUT_SIZE, "bop gbp %s get_count : %d", key, count);
             break;
         default :
             sprintf(str, "error!");
@@ -7989,17 +7991,44 @@ static char* detlongq_keystr(char* key, int cmdnum, uint32_t count)
     return str;
 }
 
+static bool detlongq_show(conn *c)
+{
+    int ii;
+
+    detlongq.returnstr = calloc(DETECT_LONGQ_BUFFER_SIZE , sizeof(char *));
+    if (detlongq.returnstr == NULL) {
+        mc_logger->log(EXTENSION_LOG_WARNING, c,
+                           "Return string allocate failed\n");
+        return false;
+    }
+
+    for(ii=0; ii < DETECT_COMMAND_NUM; ii++) {
+        char *str = malloc(DETECT_LONGQ_SAVE_SIZE * 2  * sizeof(char *));
+        if (str == NULL) {
+            mc_logger->log(EXTENSION_LOG_WARNING, c,
+                           "Shorted string allocate failed\n");
+            return false;
+        }
+        detlongq_shorted(str, ii);
+        /* add result shorted string */
+        strncat(detlongq.returnstr, str, strlen(str));
+        /* add saved long request command string */
+        strncat(detlongq.returnstr, detlongq.buffer[ii].data, detlongq.buffer[ii].offset);
+        strncat(detlongq.returnstr, "\n", 1);
+        free(str);
+    }
+    return true;
+}
+
 static int detlongq_init()
 {
     int ii;
-    int cmdnum = DETECT_COMMAND_NUM;
-    uint32_t per_size = DETECT_LONGQ_PER_BUFFER_SIZE;
 
     pthread_mutex_init(&detlongq.lock, NULL);
     detlongq.on_checking = false;
 
-    for(ii=0; ii < cmdnum; ii++) {
-        detlongq.buffer[ii].data = malloc(per_size * sizeof(char *));
+    for(ii=0; ii < DETECT_COMMAND_NUM; ii++) {
+        detlongq.buffer[ii].data = malloc(DETECT_LONGQ_PER_BUFFER_SIZE * sizeof(char *));
         if (detlongq.buffer[ii].data == NULL) {
             return -1;
         }
@@ -8010,52 +8039,23 @@ static int detlongq_init()
 static void detlongq_final()
 {
     int ii;
-    int cmdnum = DETECT_COMMAND_NUM;
 
     pthread_mutex_destroy(&detlongq.lock);
 
-    for(ii=0; ii < cmdnum; ii++) {
+    for(ii=0; ii < DETECT_COMMAND_NUM; ii++) {
          free(detlongq.buffer[ii].data);
     }
-}
-
-static bool detlongq_show(conn *c)
-{
-    int ii;
-    int cmdnum = DETECT_COMMAND_NUM;
-    uint32_t buffer_size = DETECT_LONGQ_BUFFER_SIZE;
-
-    detlongq.returnstr = calloc(buffer_size , sizeof(char *));
-    if (! detlongq.returnstr) {
-        mc_logger->log(EXTENSION_LOG_INFO, c,
-                           "Return string allocate failed\n");
-        return false;
-    }
-    for(ii=0; ii < cmdnum; ii++) {
-        char *str = malloc(DETECT_LONGQ_SAVE_SIZE * 2  * sizeof(char *));
-        if (str == NULL) {
-            return false;
-        }
-        detlongq_shorted(str, ii);
-        strncat(detlongq.returnstr, str, strlen(str));
-        strncat(detlongq.returnstr, detlongq.buffer[ii].data, detlongq.buffer[ii].offset);
-        strncat(detlongq.returnstr, "\n", 1);
-        free(str);
-    }
-    return true;
 }
 
 static bool detlongq_start()
 {
     int ii, jj;
-    int cmdnum = DETECT_COMMAND_NUM;
-    uint32_t save_size = DETECT_LONGQ_SAVE_SIZE;
     bool retval;
 
     pthread_mutex_lock(&detlongq.lock);
     if (detlongq.on_detecting == false) {
-        for(ii = 0; ii < cmdnum; ii++) {
-            for(jj = 0; jj < save_size; jj++) {
+        for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
+            for(jj = 0; jj < DETECT_LONGQ_SAVE_SIZE; jj++) {
                 memset(&detlongq.key[ii].data[jj], 0, sizeof(char));
             }
             detlongq.key[ii].count = 0;
@@ -8079,7 +8079,6 @@ static bool detlongq_stop()
     pthread_mutex_lock(&detlongq.lock);
     if (detlongq.on_detecting == true) {
         detlongq.on_detecting = false;
-
         retval = true;
     } else {
         retval = false;
@@ -8111,7 +8110,6 @@ static bool detlongq_process(conn *c, char* key, int cmdnum, uint32_t count)
 {
     bool retval;
     char *cmdstr;
-    uint32_t maxcount = DETECT_LONGQ_SAVE_SIZE - 1;
 
     pthread_mutex_lock(&detlongq.lock);
     if (detlongq.on_detecting) {
@@ -8122,10 +8120,9 @@ static bool detlongq_process(conn *c, char* key, int cmdnum, uint32_t count)
         free(cmdstr);
 
         /* internal stop */
-        if (detlongq.key[cmdnum].count > maxcount) {
+        if (detlongq.key[cmdnum].count > DETECT_LONGQ_SAVE_SIZE - 1) {
             detlongq.on_detecting = false;
         }
-
         retval = true;
     } else {
         retval = false;
@@ -8138,7 +8135,6 @@ static bool detlongq_process(conn *c, char* key, int cmdnum, uint32_t count)
 static void process_detlongrq_command(conn *c, token_t *tokens, size_t ntokens)
 {
     char *type = tokens[COMMAND_TOKEN+1].value;
-    bool ret;
 
     if (ntokens > 2 && strcmp(type, "start") == 0) {
         if (ntokens == 3) {
@@ -8146,8 +8142,8 @@ static void process_detlongrq_command(conn *c, token_t *tokens, size_t ntokens)
         } else {
             detlongq.base = atoi(tokens[SUBCOMMAND_TOKEN+1].value);
         }
-        ret = detlongq_start();
-        if (ret) {
+
+        if (detlongq_start() == true) {
             out_string(c,
             "\t" "detection long request start" "\n"
             );
@@ -8159,8 +8155,7 @@ static void process_detlongrq_command(conn *c, token_t *tokens, size_t ntokens)
             detlongq.on_checking = false;
         }
     } else if (ntokens > 2 && strcmp(type, "stop") == 0) {
-        ret = detlongq_stop();
-        if (ret) {
+        if (detlongq_stop() == true) {
             out_string(c,
             "\t" "detection long request stop" "\n"
             );
@@ -8172,7 +8167,7 @@ static void process_detlongrq_command(conn *c, token_t *tokens, size_t ntokens)
             detlongq.on_checking = false;
         }
     } else if (ntokens > 2 && strcmp(type, "show") == 0) {
-        if (detlongq_show(c)) {
+        if (detlongq_show(c) == true) {
             write_and_free(c, detlongq.returnstr, strlen(detlongq.returnstr));
         }
     } else {
@@ -8386,7 +8381,7 @@ static void process_lop_get(conn *c, char *key, size_t nkey,
         } else if ((to_index == 0 || to_index == -1) && elem_count < detlongq.base) {
             /* not long request */
         } else {
-            /* long request */ 
+            /* long request */
             if (detlongq_process(c, key, 3, elem_count) == false) {
                 detlongq.on_checking = false;
             }
