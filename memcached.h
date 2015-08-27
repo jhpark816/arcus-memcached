@@ -618,7 +618,7 @@ struct conn {
 #define DETECT_COMMAND_NUM 8
 #define DETECT_LONGQ_SAVE_SIZE 20
 #define DETECT_LONGQ_PER_BUFFER_SIZE 8000
-#define DETECT_LONGQ_BUFFER_SIZE 60000 /* 60 * KB */
+#define DETECT_LONGQ_BUFFER_SIZE 65000 /* 65 * KB */
 #define DETECT_INPUT_SIZE 300 /* the size of input(time, ip, command, bool) */
 struct detect_longq_buffer
 {
