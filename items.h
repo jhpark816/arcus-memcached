@@ -58,6 +58,18 @@ typedef struct _set_elem_item {
     char     value[1];            /**< the data itself */
 } set_elem_item;
 
+#ifdef MAP_COLLECTION_SUPPORT
+/* map element */
+typedef struct _map_elem_item {
+    uint16_t refcount;
+    uint8_t  slabs_clsid;         /* which slab class we're in */
+    uint32_t hval;                /* hash value */
+    struct _map_elem_item *next;  /* hash chain next */
+    uint32_t nbytes;              /**< The total size of the data (in bytes) */
+    char     value[1];            /**< the data itself */
+} map_elem_item;
+#endif
+
 /* btree element */
 typedef struct _btree_elem_item_fixed {
     uint16_t refcount;
@@ -118,6 +130,35 @@ typedef struct _set_meta_info {
     void    *prefix;    /* pointer to prefix meta info */
     set_hash_node *root;
 } set_meta_info;
+
+#ifdef MAP_COLLECTION_SUPPORT
+/* map meta info */
+#define MAP_HASHTAB_SIZE 16
+#define MAP_HASHIDX_MASK 0x0000000F
+#define MAP_MAX_HASHCHAIN_SIZE 64
+
+typedef struct _map_hash_node {
+    uint16_t refcount;
+    uint8_t  slabs_clsid;         /* which slab class we're in */
+    uint8_t  hdepth;
+    uint16_t tot_elem_cnt;
+    uint16_t tot_hash_cnt;
+    int16_t  hcnt[MAP_HASHTAB_SIZE];
+    void    *htab[MAP_HASHTAB_SIZE];
+} map_hash_node;
+
+typedef struct _map_meta_info {
+    int32_t  mcnt;      /* maximum count */
+    int32_t  ccnt;      /* current count */
+    uint8_t  ovflact;   /* overflow action */
+    uint8_t  mflags;    /* sticky, readable flags */
+    uint8_t  itdist;    /* distance from hash item (unit: sizeof(size_t)) */
+    uint8_t  reserved;
+    uint32_t stotal;    /* total space */
+    void    *prefix;    /* pointer to prefix meta info */
+    map_hash_node *root;
+} map_meta_info;
+#endif
 
 /* btree meta info */
 #define BTREE_MAX_DEPTH  7
@@ -484,6 +525,36 @@ ENGINE_ERROR_CODE btree_elem_smget(struct default_engine *engine,
                                    bool *trimmed, bool *duplicated);
 #endif
 
+#ifdef MAP_COLLECTION_SUPPORT
+ENGINE_ERROR_CODE map_struct_create(struct default_engine *engine,
+                                    const char *key, const size_t nkey,
+                                    item_attr *attrp, const void *cookie);
+
+set_elem_item *map_elem_alloc(struct default_engine *engine,
+                              const int nbytes, const void *cookie);
+
+void map_elem_release(struct default_engine *engine,
+                      map_elem_item **elem_array, const int elem_count);
+
+ENGINE_ERROR_CODE map_elem_insert(struct default_engine *engine,
+                                  const char *key, const size_t nkey,
+                                  map_elem_item *elem,
+                                  item_attr *attrp,
+                                  bool *created, const void *cookie);
+
+ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
+                                  const char *key, const size_t nkey,
+                                  const char *value, const size_t nbytes,
+                                  const bool drop_if_empty,
+                                  bool *dropped);
+
+ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
+                               const char *key, const size_t nkey, const uint32_t count,
+                               const bool delete, const bool drop_if_empty,
+                               map_elem_item **elem_array, uint32_t *elem_count,
+                               uint32_t *flags, bool *dropped);
+#endif
+
 ENGINE_ERROR_CODE item_getattr(struct default_engine *engine,
                                const void* key, const int nkey,
                                ENGINE_ITEM_ATTR *attr_ids, const uint32_t attr_count,
@@ -518,6 +589,9 @@ bool item_is_linked(const hash_item* item);
 bool list_elem_is_linked(list_elem_item *elem);
 bool set_elem_is_linked(set_elem_item *elem);
 bool btree_elem_is_linked(btree_elem_item *elem);
+#ifdef MAP_COLLECTION_SUPPORT
+bool map_elem_is_linked(map_elem_item *elem);
+#endif
 
 /*
  * Item and Element size functions
@@ -527,6 +601,9 @@ uint32_t list_elem_ntotal(list_elem_item *elem);
 uint32_t set_elem_ntotal(set_elem_item *elem);
 uint32_t btree_elem_ntotal(btree_elem_item *elem);
 uint8_t  btree_real_nbkey(uint8_t nbkey);
+#ifdef MAP_COLLECTION_SUPPORT
+uint32_t map_elem_ntotal(map_elem_item *elem);
+#endif
 
 /**
  * Start the item scrubber

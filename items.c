@@ -78,6 +78,9 @@ extern int genhash_string_hash(const void* p, size_t nkey);
 #define IS_SET_ITEM(it)   (((it)->iflag & ITEM_IFLAG_SET) != 0)
 #define IS_BTREE_ITEM(it) (((it)->iflag & ITEM_IFLAG_BTREE) != 0)
 #define IS_COLL_ITEM(it)  (((it)->iflag & ITEM_IFLAG_COLL) != 0)
+#ifdef MAP_COLLECTION_SUPPORT
+#define IS_MAP_ITEM(it)   (((it)->iflag & ITEM_IFLAG_MAP) != 0)
+#endif
 
 /* btree item status */
 #define BTREE_ITEM_STATUS_USED   2
@@ -151,11 +154,17 @@ static int32_t coll_size_limit = 1000000;
 static int32_t max_list_size   = 50000;
 static int32_t max_set_size    = 50000;
 static int32_t max_btree_size  = 50000;
+#ifdef MAP_COLLECTION_SUPPORT
+static int32_t max_map_size    = 50000;
+#endif
 
 /* default collection size */
 static int32_t default_list_size  = 4000;
 static int32_t default_set_size   = 4000;
 static int32_t default_btree_size = 4000;
+#ifdef MAP_COLLECTION_SUPPORT
+static int32_t default_map_size   = 4000;
+#endif
 
 static EXTENSION_LOGGER_DESCRIPTOR *logger;
 
@@ -1432,6 +1441,13 @@ static inline uint32_t do_btree_elem_ntotal(btree_elem_item *elem)
            + elem->neflag + elem->nbytes;
 }
 
+#ifdef MAP_COLLECTION_SUPPORT
+static inline uint32_t do_map_elem_ntotal(map_elem_item *elem)
+{
+    return sizeof(map_elem_item) + elem->nbytes;
+}
+#endif
+
 /*
  * LIST collection management
  */
@@ -2194,6 +2210,507 @@ static ENGINE_ERROR_CODE do_set_elem_insert(struct default_engine *engine,
     }
     return ret;
 }
+
+#ifdef MAP_COLLECTION_SUPPORT
+/*
+ * MAP collection manangement
+ */
+static inline int map_hash_eq(const int h1, const void *v1, size_t vlen1,
+                              const int h2, const void *v2, size_t vlen2)
+{
+    return (h1 == h2 && vlen1 == vlen2 && memcmp(v1, v2, vlen1) == 0);
+}
+
+#define MAP_GET_HASHIDX(hval, hdepth) \
+        (((hval) & (MAP_HASHIDX_MASK << ((hdepth)*4))) >> ((hdepth)*4))
+
+static ENGINE_ERROR_CODE do_map_item_find(struct default_engine *engine,
+                                          const void *key, const size_t nkey,
+                                          bool LRU_reposition, hash_item **item)
+{
+    *item = NULL;
+    hash_item *it = do_item_get(engine, key, nkey, LRU_reposition);
+    if (it == NULL) {
+        return ENGINE_KEY_ENOENT;
+    }
+    if (IS_SET_ITEM(it)) {
+        *item = it;
+        return ENGINE_SUCCESS;
+    } else {
+        do_item_release(engine, it);
+        return ENGINE_EBADTYPE;
+    }
+}
+
+static hash_item *do_map_item_alloc(struct default_engine *engine,
+                                    const void *key, const size_t nkey,
+                                    item_attr *attrp, const void *cookie)
+{
+    char *value = "\r\n"; //MAP ITEM\r\n";
+    int nbytes = 2; //10;
+    int real_nbytes = META_OFFSET_IN_ITEM(nkey,nbytes)+sizeof(map_meta_info)-nkey;
+
+    hash_item *it = do_item_alloc(engine, key, nkey, attrp->flags, attrp->exptime,
+                                  real_nbytes, cookie);
+    if (it != NULL) {
+        it->iflag |= ITEM_IFLAG_SET;
+        it->nbytes = nbytes;
+        memcpy(item_get_data(it), value, nbytes);
+
+        /* initialize map meta information */
+        map_meta_info *info = (map_meta_info *)item_get_meta(it);
+        info->mcnt = do_coll_real_maxcount(it, attrp->maxcount);
+        info->ccnt = 0;
+        info->ovflact = OVFL_ERROR;
+        info->mflags  = 0;
+#ifdef ENABLE_STICKY_ITEM
+        if (attrp->exptime == (rel_time_t)(-1)) info->mflags |= COLL_META_FLAG_STICKY;
+#endif
+        if (attrp->readable == 1)               info->mflags |= COLL_META_FLAG_READABLE;
+        info->itdist  = (uint8_t)((size_t*)info-(size_t*)it);
+        info->stotal  = 0;
+        info->prefix  = NULL;
+        info->root    = NULL;
+        assert(do_coll_get_hash_item((coll_meta_info*)info) == it);
+    }
+    return it;
+}
+
+static map_hash_node *do_map_node_alloc(struct default_engine *engine,
+                                        uint8_t hash_depth, const void *cookie)
+{
+    size_t ntotal = sizeof(map_hash_node);
+
+    map_hash_node *node = do_item_alloc_internal(engine, ntotal, LRU_CLSID_FOR_SMALL, cookie);
+    if (node != NULL) {
+        assert(node->slabs_clsid == 0);
+        node->slabs_clsid = slabs_clsid(engine, ntotal);
+        node->refcount    = 0;
+        node->hdepth      = hash_depth;
+        node->tot_hash_cnt = 0;
+        node->tot_elem_cnt = 0;
+        memset(node->hcnt, 0, MAP_HASHTAB_SIZE*sizeof(uint16_t));
+        memset(node->htab, 0, MAP_HASHTAB_SIZE*sizeof(void*));
+    }
+    return node;
+}
+
+static void do_map_node_free(struct default_engine *engine, map_hash_node *node)
+{
+    do_mem_slot_free(engine, node, sizeof(map_hash_node));
+}
+
+static map_elem_item *do_map_elem_alloc(struct default_engine *engine,
+                                        const int nbytes, const void *cookie)
+{
+    size_t ntotal = sizeof(map_elem_item) + nbytes;
+
+    map_elem_item *elem = do_item_alloc_internal(engine, ntotal, LRU_CLSID_FOR_SMALL, cookie);
+    if (elem != NULL) {
+        assert(elem->slabs_clsid == 0);
+        elem->slabs_clsid = slabs_clsid(engine, ntotal);
+        elem->refcount    = 1;
+        elem->nbytes      = nbytes;
+        elem->next = (map_elem_item *)ADDR_MEANS_UNLINKED; /* Unliked state */
+    }
+    return elem;
+}
+
+static void do_map_elem_free(struct default_engine *engine, map_elem_item *elem)
+{
+    assert(elem->refcount == 0);
+    assert(elem->slabs_clsid != 0);
+    size_t ntotal = do_map_elem_ntotal(elem);
+    do_mem_slot_free(engine, elem, ntotal);
+}
+
+static void do_map_elem_release(struct default_engine *engine, map_elem_item *elem)
+{
+    if (elem->refcount != 0) {
+        elem->refcount--;
+    }
+    if (elem->refcount == 0 && elem->next == (map_elem_item *)ADDR_MEANS_UNLINKED) {
+        do_map_elem_free(engine, elem);
+    }
+}
+
+static void do_map_node_link(struct default_engine *engine,
+                             map_meta_info *info,
+                             map_hash_node *par_node, const int par_hidx,
+                             map_hash_node *node)
+{
+    if (par_node == NULL) {
+        info->root = node;
+    } else {
+        map_elem_item *elem;
+        int num_elems = par_node->hcnt[par_hidx];
+        int hidx, fcnt=0;
+
+        while (par_node->htab[par_hidx] != NULL) {
+            elem = par_node->htab[par_hidx];
+            par_node->htab[par_hidx] = elem->next;
+
+            hidx = MAP_GET_HASHIDX(elem->hval, node->hdepth);
+            elem->next = node->htab[hidx];
+            node->htab[hidx] = elem;
+            node->hcnt[hidx] += 1;
+            fcnt++;
+        }
+        assert(fcnt == num_elems);
+        node->tot_elem_cnt = fcnt;
+
+        par_node->htab[par_hidx] = node;
+        par_node->hcnt[par_hidx] = -1; /* child hash node */
+        par_node->tot_elem_cnt -= fcnt;
+        par_node->tot_hash_cnt += 1;
+    }
+
+    if (1) { /* apply memory space */
+        size_t stotal = slabs_space_size(engine, sizeof(map_hash_node));
+        increase_collection_space(engine, ITEM_TYPE_MAP, (coll_meta_info *)info, stotal);
+    }
+}
+
+static void do_map_node_unlink(struct default_engine *engine,
+                               map_meta_info *info,
+                               map_hash_node *par_node, const int par_hidx)
+{
+    map_hash_node *node;
+
+    if (par_node == NULL) {
+        node = info->root;
+        info->root = NULL;
+        assert(node->tot_hash_cnt == 0);
+        assert(node->tot_elem_cnt == 0);
+    } else {
+        assert(par_node->hcnt[par_hidx] == -1); /* child hash node */
+        map_elem_item *head = NULL;
+        map_elem_item *elem;
+        int hidx, fcnt = 0;
+
+        node = (map_hash_node *)par_node->htab[par_hidx];
+        assert(node->tot_hash_cnt == 0);
+
+        for (hidx = 0; hidx < MAP_HASHTAB_SIZE; hidx++) {
+            assert(node->hcnt[hidx] >= 0);
+            if (node->hcnt[hidx] > 0) {
+                fcnt += node->hcnt[hidx];
+                while (node->htab[hidx] != NULL) {
+                    elem = node->htab[hidx];
+                    node->htab[hidx] = elem->next;
+                    node->hcnt[hidx] -= 1;
+
+                    elem->next = head;
+                    head = elem;
+                }
+                assert(node->hcnt[hidx] == 0);
+            }
+        }
+        assert(fcnt == node->tot_elem_cnt);
+        node->tot_elem_cnt = 0;
+
+        par_node->htab[par_hidx] = head;
+        par_node->hcnt[par_hidx] = fcnt;
+        par_node->tot_elem_cnt += fcnt;
+        par_node->tot_hash_cnt -= 1;
+    }
+
+    if (info->stotal > 0) { /* apply memory space */
+        size_t stotal = slabs_space_size(engine, sizeof(map_hash_node));
+        decrease_collection_space(engine, ITEM_TYPE_MAP, (coll_meta_info *)info, stotal);
+    }
+
+    /* free the node */
+    do_map_node_free(engine, node);
+}
+
+static ENGINE_ERROR_CODE do_map_elem_link(struct default_engine *engine,
+                                          map_meta_info *info, map_elem_item *elem,
+                                          const void *cookie)
+{
+    assert(info->root != NULL);
+    map_hash_node *node = info->root;
+    map_elem_item *find;
+    int hidx;
+
+    /* map hash value */
+    elem->hval = genhash_string_hash(elem->value, elem->nbytes);
+
+    while (node != NULL) {
+        hidx = MAP_GET_HASHIDX(elem->hval, node->hdepth);
+        if (node->hcnt[hidx] >= 0) /* map element hash chain */
+            break;
+        node = node->htab[hidx];
+    }
+    assert(node != NULL);
+
+    for (find = node->htab[hidx]; find != NULL; find = find->next) {
+        if (map_hash_eq(elem->hval, elem->value, elem->nbytes,
+                        find->hval, find->value, find->nbytes))
+            break;
+    }
+    if (find != NULL) {
+        return ENGINE_ELEM_EEXISTS;
+    }
+
+    if (node->hcnt[hidx] >= MAP_MAX_HASHCHAIN_SIZE) {
+        map_hash_node *n_node = do_map_node_alloc(engine, node->hdepth+1, cookie);
+        if (n_node == NULL) {
+            return ENGINE_ENOMEM;
+        }
+        do_map_node_link(engine, info, node, hidx, n_node);
+
+        node = n_node;
+        hidx = MAP_GET_HASHIDX(elem->hval, node->hdepth);
+    }
+
+    elem->next = node->htab[hidx];
+    node->htab[hidx] = elem;
+    node->hcnt[hidx] += 1;
+    node->tot_elem_cnt += 1;
+
+    info->ccnt++;
+
+    if (1) { /* apply memory space */
+        size_t stotal = slabs_space_size(engine, do_map_elem_ntotal(elem));
+        increase_collection_space(engine, ITEM_TYPE_MAP, (coll_meta_info *)info, stotal);
+    }
+
+    return ENGINE_SUCCESS;
+}
+
+static void do_map_elem_unlink(struct default_engine *engine,
+                               map_meta_info *info,
+                               map_hash_node *node, const int hidx,
+                               map_elem_item *prev, map_elem_item *elem,
+                               enum elem_delete_cause cause)
+{
+    if (prev != NULL) prev->next = elem->next;
+    else              node->htab[hidx] = elem->next;
+    elem->next = (set_elem_item *)ADDR_MEANS_UNLINKED;
+    node->hcnt[hidx] -= 1;
+    node->tot_elem_cnt -= 1;
+
+    info->ccnt--;
+
+    if (info->stotal > 0) { /* apply memory space */
+        size_t stotal = slabs_space_size(engine, do_map_elem_ntotal(elem));
+        decrease_collection_space(engine, ITEM_TYPE_MAP, (coll_meta_info *)info, stotal);
+    }
+
+    if (elem->refcount == 0) {
+        do_map_elem_free(engine, elem);
+    }
+}
+
+static map_elem_item *do_map_elem_find(map_meta_info *info, const char *val, const int vlen)
+{
+    map_elem_item *elem = NULL;
+
+    if (info->root != NULL) {
+        map_hash_node *node = info->root;
+        int hval = genhash_string_hash(val, vlen);
+        int hidx;
+
+        while (node != NULL) {
+            hidx = MAP_GET_HASHIDX(hval, node->hdepth);
+            if (node->hcnt[hidx] >= 0) /* map element hash chain */
+                break;
+            node = node->htab[hidx];
+        }
+        assert(node != NULL);
+
+        for (elem = node->htab[hidx]; elem != NULL; elem = elem->next) {
+            if (map_hash_eq(hval, val, vlen, elem->hval, elem->value, elem->nbytes))
+                break;
+        }
+    }
+    return elem;
+}
+
+static ENGINE_ERROR_CODE do_map_elem_traverse_delete(struct default_engine *engine,
+                                                     map_meta_info *info, map_hash_node *node,
+                                                     const int hval, const char *val, const int vlen)
+{
+    ENGINE_ERROR_CODE ret;
+
+    int hidx = MAP_GET_HASHIDX(hval, node->hdepth);
+
+    if (node->hcnt[hidx] == -1) {
+        map_hash_node *child_node = node->htab[hidx];
+        ret = do_map_elem_traverse_delete(engine, info, child_node, hval, val, vlen);
+        if (ret == ENGINE_SUCCESS) {
+            if (child_node->tot_hash_cnt == 0 &&
+                child_node->tot_elem_cnt < (MAP_MAX_HASHCHAIN_SIZE/2)) {
+                do_map_node_unlink(engine, info, node, hidx);
+            }
+        }
+    } else {
+        ret = ENGINE_ELEM_ENOENT;
+        if (node->hcnt[hidx] > 0) {
+            map_elem_item *prev = NULL;
+            map_elem_item *elem = node->htab[hidx];
+            while (elem != NULL) {
+                if (map_hash_eq(hval, val, vlen, elem->hval, elem->value, elem->nbytes))
+                    break;
+                prev = elem;
+                elem = elem->next;
+            }
+            if (elem != NULL) {
+                do_map_elem_unlink(engine, info, node, hidx, prev, elem,
+                                   ELEM_DELETE_NORMAL);
+                ret = ENGINE_SUCCESS;
+            }
+        }
+    }
+    return ret;
+}
+
+static ENGINE_ERROR_CODE do_map_elem_delete_with_value(struct default_engine *engine,
+                                                       map_meta_info *info,
+                                                       const char *val, const int vlen,
+                                                       enum elem_delete_cause cause)
+{
+    assert(cause == ELEM_DELETE_NORMAL);
+    ENGINE_ERROR_CODE ret;
+    if (info->root != NULL) {
+        int hval = genhash_string_hash(val, vlen);
+        ret = do_map_elem_traverse_delete(engine, info, info->root, hval, val, vlen);
+        if (ret == ENGINE_SUCCESS) {
+            if (info->root->tot_hash_cnt == 0 && info->root->tot_elem_cnt == 0) {
+                do_map_node_unlink(engine, info, NULL, 0);
+            }
+        }
+    } else {
+        ret = ENGINE_ELEM_ENOENT;
+    }
+    return ret;
+}
+
+static int do_map_elem_traverse_dfs(struct default_engine *engine,
+                                    map_meta_info *info, map_hash_node *node,
+                                    const uint32_t count, const bool delete,
+                                    map_elem_item **elem_array)
+{
+    int hidx;
+    int rcnt = 0; /* request count */
+    int fcnt, tot_fcnt = 0; /* found count */
+
+    if (node->tot_hash_cnt > 0) {
+        for (hidx = 0; hidx < MAP_HASHTAB_SIZE; hidx++) {
+            if (node->hcnt[hidx] == -1) {
+                map_hash_node *child_node = (map_hash_node *)node->htab[hidx];
+                if (count > 0) rcnt = count - tot_fcnt;
+                fcnt = do_map_elem_traverse_dfs(engine, info, child_node, rcnt, delete,
+                                            (elem_array==NULL ? NULL : &elem_array[tot_fcnt]));
+                if (delete) {
+                    if  (child_node->tot_hash_cnt == 0 &&
+                         child_node->tot_elem_cnt < (MAP_MAX_HASHCHAIN_SIZE/2)) {
+                         do_map_node_unlink(engine, info, node, hidx);
+                     }
+                }
+                tot_fcnt += fcnt;
+                if (count > 0 && tot_fcnt >= count)
+                    return tot_fcnt;
+            }
+        }
+    }
+    assert(count == 0 || tot_fcnt < count);
+
+    for (hidx = 0; hidx < MAP_HASHTAB_SIZE; hidx++) {
+        if (node->hcnt[hidx] > 0) {
+            fcnt = 0;
+            map_elem_item *elem = node->htab[hidx];
+            while (elem != NULL) {
+                if (elem_array) {
+                    elem->refcount++;
+                    elem_array[tot_fcnt+fcnt] = elem;
+                }
+                fcnt++;
+                if (delete) do_map_elem_unlink(engine, info, node, hidx, NULL, elem,
+                                               (elem_array==NULL ? ELEM_DELETE_COLL
+                                                                 : ELEM_DELETE_NORMAL));
+                if (count > 0 && (tot_fcnt+fcnt) >= count) break;
+                elem = (delete ? node->htab[hidx] : elem->next);
+            }
+            tot_fcnt += fcnt;
+            if (count > 0 && tot_fcnt >= count) break;
+        }
+    }
+    return tot_fcnt;
+}
+
+static uint32_t do_map_elem_delete(struct default_engine *engine,
+                                   map_meta_info *info, const uint32_t count,
+                                   enum elem_delete_cause cause)
+{
+    assert(cause == ELEM_DELETE_COLL);
+    uint32_t fcnt = 0;
+    if (info->root != NULL) {
+        fcnt = do_map_elem_traverse_dfs(engine, info, info->root, count, true, NULL);
+        if (info->root->tot_hash_cnt == 0 && info->root->tot_elem_cnt == 0) {
+            do_map_node_unlink(engine, info, NULL, 0);
+        }
+    }
+    return fcnt;
+}
+
+static uint32_t do_map_elem_get(struct default_engine *engine,
+                                map_meta_info *info, const uint32_t count, const bool delete,
+                                map_elem_item **elem_array)
+{
+    uint32_t fcnt = 0;
+    if (info->root != NULL) {
+        fcnt = do_map_elem_traverse_dfs(engine, info, info->root, count, delete, elem_array);
+        if (delete && info->root->tot_hash_cnt == 0 && info->root->tot_elem_cnt == 0) {
+            do_map_node_unlink(engine, info, NULL, 0);
+        }
+    }
+    return fcnt;
+}
+
+static ENGINE_ERROR_CODE do_map_elem_insert(struct default_engine *engine,
+                                            hash_item *it, map_elem_item *elem,
+                                            const void *cookie)
+{
+    map_meta_info *info = (map_meta_info *)item_get_meta(it);
+    ENGINE_ERROR_CODE ret;
+
+#ifdef ENABLE_STICKY_ITEM
+    /* sticky memory limit check */
+    if ((info->mflags & COLL_META_FLAG_STICKY) != 0) {
+        if (engine->stats.sticky_bytes >= engine->config.sticky_limit)
+            return ENGINE_ENOMEM;
+    }
+#endif
+
+    /* overflow check */
+    assert(info->ovflact == OVFL_ERROR);
+    if (info->ccnt >= info->mcnt) {
+        return ENGINE_EOVERFLOW;
+    }
+
+    /* create the root hash node if it does not exist */
+    bool new_root_flag = false;
+    if (info->root == NULL) { /* empty set */
+        map_hash_node *r_node = do_map_node_alloc(engine, 0, cookie);
+        if (r_node == NULL) {
+            return ENGINE_ENOMEM;
+        }
+        do_map_node_link(engine, info, NULL, 0, r_node);
+        new_root_flag = true;
+    }
+
+    /* insert the element */
+    ret = do_map_elem_link(engine, info, elem, cookie);
+    if (ret != ENGINE_SUCCESS) {
+        if (new_root_flag) {
+            do_map_node_unlink(engine, info, NULL, 0);
+        }
+    }
+    return ret;
+}
+#endif
 
 /*
  * B+TREE collection management
@@ -5221,6 +5738,23 @@ static void *collection_delete_thread(void *arg)
                 pthread_mutex_unlock(&engine->cache_lock);
             }
         }
+#ifdef MAP_COLLECTION_SUPPORT
+        else if (IS_MAP_ITEM(it)) {
+            bool dropped = false;
+            map_meta_info *info;
+            while (dropped == false) {
+                pthread_mutex_lock(&engine->cache_lock);
+                info = (map_meta_info *)item_get_meta(it);
+                (void)do_map_elem_delete(engine, info, 30, ELEM_DELETE_COLL);
+                if (info->ccnt == 0) {
+                    assert(info->root == NULL);
+                    do_item_free(engine, it);
+                    dropped = true;
+                }
+                pthread_mutex_unlock(&engine->cache_lock);
+            }
+        }
+#endif
     }
     return NULL;
 }
@@ -5598,9 +6132,18 @@ ENGINE_ERROR_CODE item_init(struct default_engine *engine)
         max_btree_size = engine->config.max_btree_size < coll_size_limit
                        ? (int32_t)engine->config.max_btree_size : coll_size_limit;
     }
+#ifdef MAP_COLLECTION_SUPPORT
+    if (engine->config.max_map_size > max_map_size) {
+        max_map_size = engine->config.max_map_size < coll_size_limit
+                     ? (int32_t)engine->config.max_map_size : coll_size_limit;
+    }
+#endif
     logger->log(EXTENSION_LOG_INFO, NULL, "maximum list  size = %d\n", max_list_size);
     logger->log(EXTENSION_LOG_INFO, NULL, "maximum set   size = %d\n", max_set_size);
     logger->log(EXTENSION_LOG_INFO, NULL, "maximum btree size = %d\n", max_btree_size);
+#ifdef MAP_COLLECTION_SUPPORT
+    logger->log(EXTENSION_LOG_INFO, NULL, "maximum map   size = %d\n", max_map_size);
+#endif
 
     int ret = pthread_create(&engine->coll_del_tid, NULL,
                              collection_delete_thread, engine);
@@ -6020,6 +6563,160 @@ ENGINE_ERROR_CODE set_elem_get(struct default_engine *engine,
     pthread_mutex_unlock(&engine->cache_lock);
     return ret;
 }
+
+#ifdef MAP_COLLECTION_SUPPORT
+/* 
+ * MAP Interface Functions
+ */
+ENGINE_ERROR_CODE map_struct_create(struct default_engine *engine,
+                                    const char *key, const size_t nkey,
+                                    item_attr *attrp, const void *cookie)
+{
+    ENGINE_ERROR_CODE ret;
+    hash_item *it;
+
+    pthread_mutex_lock(&engine->cache_lock);
+    it = do_item_get(engine, key, nkey, false);
+    if (it != NULL) {
+        do_item_release(engine, it);
+        ret = ENGINE_KEY_EEXISTS;
+    } else {
+        it = do_set_item_alloc(engine, key, nkey, attrp, cookie);
+        if (it == NULL) {
+            ret = ENGINE_ENOMEM;
+        } else {
+            ret = do_item_link(engine, it);
+            do_item_release(engine, it);
+        }
+    }
+    pthread_mutex_unlock(&engine->cache_lock);
+    return ret;
+}
+
+map_elem_item *map_elem_alloc(struct default_engine *engine, const int nbytes, const void *cookie)
+{
+    map_elem_item *elem;
+    pthread_mutex_lock(&engine->cache_lock);
+    elem = do_set_elem_alloc(engine, nbytes, cookie);
+    pthread_mutex_unlock(&engine->cache_lock);
+    return elem;
+}
+
+void map_elem_release(struct default_engine *engine, map_elem_item **elem_array, const int elem_count)
+{
+    int cnt = 0;
+    pthread_mutex_lock(&engine->cache_lock);
+    while (cnt < elem_count) {
+        do_set_elem_release(engine, elem_array[cnt++]);
+        if ((cnt % 100) == 0 && cnt < elem_count) {
+            pthread_mutex_unlock(&engine->cache_lock);
+            pthread_mutex_lock(&engine->cache_lock);
+        }
+    }
+    pthread_mutex_unlock(&engine->cache_lock);
+}
+
+ENGINE_ERROR_CODE map_elem_insert(struct default_engine *engine, const char *key, const size_t nkey,
+                                  map_elem_item *elem, item_attr *attrp, bool *created, const void *cookie)
+{
+    hash_item *it = NULL;
+    ENGINE_ERROR_CODE ret;
+
+    *created = false;
+
+    pthread_mutex_lock(&engine->cache_lock);
+    ret = do_set_item_find(engine, key, nkey, false, &it);
+    if (ret == ENGINE_KEY_ENOENT && attrp != NULL) {
+        it = do_set_item_alloc(engine, key, nkey, attrp, cookie);
+        if (it == NULL) {
+            ret = ENGINE_ENOMEM;
+        } else {
+            ret = do_item_link(engine, it);
+            if (ret == ENGINE_SUCCESS) {
+                *created = true;
+            } else {
+                /* The item is to be released, below */
+            }
+        }
+    }
+    if (ret == ENGINE_SUCCESS) {
+        ret = do_set_elem_insert(engine, it, elem, cookie);
+        if (ret != ENGINE_SUCCESS && *created) {
+            do_item_unlink(engine, it, ITEM_UNLINK_ABORT);
+        }
+    }
+    if (it != NULL) do_item_release(engine, it);
+    pthread_mutex_unlock(&engine->cache_lock);
+    return ret;
+}
+
+ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
+                                  const char *key, const size_t nkey,
+                                  const char *value, const size_t nbytes,
+                                  const bool drop_if_empty, bool *dropped)
+{
+    hash_item     *it;
+    map_meta_info *info;
+    ENGINE_ERROR_CODE ret;
+
+    *dropped = false;
+
+    pthread_mutex_lock(&engine->cache_lock);
+    ret = do_set_item_find(engine, key, nkey, false, &it);
+    if (ret == ENGINE_SUCCESS) { /* it != NULL */
+        info = (map_meta_info *)item_get_meta(it);
+        ret = do_set_elem_delete_with_value(engine, info, value, nbytes,
+                                            ELEM_DELETE_NORMAL);
+        if (ret == ENGINE_SUCCESS) {
+            if (info->ccnt == 0 && drop_if_empty) {
+                do_item_unlink(engine, it, ITEM_UNLINK_EMPTY);
+                *dropped = true;
+            }
+        }
+        do_item_release(engine, it);
+    }
+    pthread_mutex_unlock(&engine->cache_lock);
+    return ret;
+}
+
+ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
+                               const char *key, const size_t nkey, const uint32_t count,
+                               const bool delete, const bool drop_if_empty,
+                               map_elem_item **elem_array, uint32_t *elem_count,
+                               uint32_t *flags, bool *dropped)
+{
+    hash_item     *it;
+    map_meta_info *info;
+    ENGINE_ERROR_CODE ret;
+
+    pthread_mutex_lock(&engine->cache_lock);
+    ret = do_set_item_find(engine, key, nkey, true, &it);
+    if (ret == ENGINE_SUCCESS) {
+        info = (map_meta_info *)item_get_meta(it);
+        do {
+            if ((info->mflags & COLL_META_FLAG_READABLE) == 0) {
+                ret = ENGINE_UNREADABLE; break;
+            }
+            *elem_count = do_set_elem_get(engine, info, count, delete, elem_array);
+            if (*elem_count > 0) {
+                if (info->ccnt == 0 && drop_if_empty) {
+                    assert(delete == true);
+                    do_item_unlink(engine, it, ITEM_UNLINK_EMPTY);
+                    *dropped = true;
+                } else {
+                    *dropped = false;
+                }
+                *flags = it->flags;
+            } else {
+                ret = ENGINE_ELEM_ENOENT; break;
+            }
+        } while (0);
+        do_item_release(engine, it);
+    }
+    pthread_mutex_unlock(&engine->cache_lock);
+    return ret;
+}
+#endif
 
 /*
  * B+TREE Interface Functions
@@ -6862,6 +7559,13 @@ bool btree_elem_is_linked(btree_elem_item *elem)
     return (elem->status == BTREE_ITEM_STATUS_USED);
 }
 
+#ifdef MAP_COLLECTION_SUPPORT
+bool map_elem_is_linked(map_elem_item *elem)
+{
+    return (elem->next != (map_elem_item *)ADDR_MEANS_UNLINKED);
+}
+#endif
+
 /*
  * Item and Element size functions
  */
@@ -6889,6 +7593,13 @@ uint8_t  btree_real_nbkey(uint8_t nbkey)
 {
     return (uint8_t)BTREE_REAL_NBKEY(nbkey);
 }
+
+#ifdef MAP_COLLECTION_SUPPORT
+uint32_t map_elem_ntotal(map_elem_item *elem)
+{
+    return do_map_elem_ntotal(elem);
+}
+#endif
 
 /*
  * ITEM SCRUB functions

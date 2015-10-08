@@ -120,6 +120,14 @@ extern "C" {
         OPERATION_BOP_MGET,          /**< B+tree operation with mget(multiple get) element semantics */
         // SUPPORT_BOP_SMGET
         OPERATION_BOP_SMGET          /**< B+tree operation with smget(sort-merge get) element semantics */
+
+#ifdef MAP_COLLECTION_SUPPORT
+        /* map operation */
+        OPERATION_MOP_CREATE = 0x80, /**< Map operation with create structure semantics */
+        OPERATION_MOP_INSERT,        /**< Map operation with insert element semantics */
+        OPERATION_MOP_DELETE,        /**< Map operation with delete element semantics */
+        OPERATION_MOP_GET,           /**< Map operation with get element semantics */
+#endif
     } ENGINE_COLL_OPERATION;
 
     /* item type */
@@ -128,6 +136,9 @@ extern "C" {
         ITEM_TYPE_LIST,
         ITEM_TYPE_SET,
         ITEM_TYPE_BTREE,
+#ifdef MAP_COLLECTION_SUPPORT
+        ITEM_TYPE_MAP,
+#endif
         ITEM_TYPE_UNKNOWN
     } ENGINE_ITEM_TYPE;
 

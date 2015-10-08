@@ -63,6 +63,12 @@ struct _prefix_stats {
     uint64_t      num_bop_positions; /* find position */
     uint64_t      num_bop_pwgs;      /* find position with get */
     uint64_t      num_bop_gbps;      /* get by position */
+#ifdef MAP_COLLECTION_SUPPORT
+    uint64_t      num_mop_creates;
+    uint64_t      num_mop_inserts;
+    uint64_t      num_mop_deletes;
+    uint64_t      num_mop_gets;
+#endif
     uint64_t      num_getattrs;
     uint64_t      num_setattrs;
     uint64_t      num_lop_insert_hits;
@@ -82,6 +88,11 @@ struct _prefix_stats {
     uint64_t      num_bop_position_hits;
     uint64_t      num_bop_pwg_hits;
     uint64_t      num_bop_gbp_hits;
+#ifdef MAP_COLLECTION_SUPPORT
+    uint64_t      num_mop_insert_hits;
+    uint64_t      num_mop_delete_hits;
+    uint64_t      num_mop_get_hits;
+#endif
     PREFIX_STATS *next;
 };
 
@@ -564,6 +575,64 @@ void stats_prefix_record_bop_gbp(const char *key, const size_t nkey, const bool 
     }
     STATS_UNLOCK();
 }
+
+#ifdef MAP_COLLECTION_SUPPORT
+/*
+ *  * MAP stats
+ *   */
+void stats_prefix_record_mop_create(const char *key, const size_t nkey) {
+    PREFIX_STATS *pfs;
+
+    STATS_LOCK();
+    pfs = stats_prefix_find(key, nkey);
+    if (NULL != pfs) {
+        pfs->num_mop_creates++;
+    }
+    STATS_UNLOCK();
+}
+
+void stats_prefix_record_mop_insert(const char *key, const size_t nkey, const bool is_hit) {
+    PREFIX_STATS *pfs;
+
+    STATS_LOCK();
+    pfs = stats_prefix_find(key, nkey);
+    if (NULL != pfs) {
+        pfs->num_mop_inserts++;
+        if (is_hit) {
+            pfs->num_mop_insert_hits++;
+        }
+    }
+    STATS_UNLOCK();
+}
+
+void stats_prefix_record_mop_delete(const char *key, const size_t nkey, const bool is_hit) {
+    PREFIX_STATS *pfs;
+
+    STATS_LOCK();
+    pfs = stats_prefix_find(key, nkey);
+    if (NULL != pfs) {
+        pfs->num_mop_deletes++;
+        if (is_hit) {
+            pfs->num_mop_delete_hits++;
+        }
+    }
+    STATS_UNLOCK();
+}
+
+void stats_prefix_record_mop_get(const char *key, const size_t nkey, const bool is_hit) {
+    PREFIX_STATS *pfs;
+
+    STATS_LOCK();
+    pfs = stats_prefix_find(key, nkey);
+    if (NULL != pfs) {
+        pfs->num_mop_gets++;
+        if (is_hit) {
+            pfs->num_mop_get_hits++;
+        }
+    }
+    STATS_UNLOCK();
+}
+#endif
 
 /*
  * ATTR stats

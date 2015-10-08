@@ -744,6 +744,97 @@ static ENGINE_ERROR_CODE default_btree_elem_smget(ENGINE_HANDLE* handle, const v
 }
 #endif
 
+#ifdef MAP_COLLECTION_SUPPORT
+
+/* Map Collection */
+
+static ENGINE_ERROR_CODE default_map_struct_create(ENGINE_HANDLE* handle, const void* cookie,
+                                                   const void* key, const int nkey, item_attr *attrp,
+                                                   uint16_t vbucket)
+{
+    struct default_engine* engine = get_handle(handle);
+    ENGINE_ERROR_CODE ret;
+    VBUCKET_GUARD(engine, vbucket);
+
+    ACTION_BEFORE_WRITE(cookie, key, nkey);
+    ret = map_struct_create(engine, key, nkey, attrp, cookie);
+    ACTION_AFTER_WRITE(cookie, ret);
+    return ret;
+}
+
+static ENGINE_ERROR_CODE default_map_elem_alloc(ENGINE_HANDLE* handle, const void* cookie,
+                                                const void* key, const int nkey,
+                                                const size_t nbytes, eitem** eitem)
+{
+    map_elem_item *elem;
+    ENGINE_ERROR_CODE ret = ENGINE_EINVAL;
+
+    ACTION_BEFORE_WRITE(cookie, key, nkey);
+    elem = map_elem_alloc(get_handle(handle), nbytes, cookie);
+    ACTION_AFTER_WRITE(cookie, ret);
+    if (elem != NULL) {
+        *eitem = elem;
+        ret = ENGINE_SUCCESS;
+    } else {
+        ret = ENGINE_ENOMEM;
+    }
+    return ret;
+}
+
+static void default_map_elem_release(ENGINE_HANDLE* handle, const void *cookie,
+                                     eitem **eitem_array, const int eitem_count)
+{
+    map_elem_release(get_handle(handle), (map_elem_item**)eitem_array, eitem_count);
+}
+
+static ENGINE_ERROR_CODE default_map_elem_insert(ENGINE_HANDLE* handle, const void* cookie,
+                                                 const void* key, const int nkey, eitem *eitem,
+                                                 item_attr *attrp, bool *created, uint16_t vbucket)
+{
+    struct default_engine *engine = get_handle(handle);
+    ENGINE_ERROR_CODE ret;
+    VBUCKET_GUARD(engine, vbucket);
+
+    ACTION_BEFORE_WRITE(cookie, key, nkey);
+    ret = map_elem_insert(engine, key, nkey, (map_elem_item*)eitem, attrp, created, cookie);
+    ACTION_AFTER_WRITE(cookie, ret);
+    return ret;
+}
+
+static ENGINE_ERROR_CODE default_map_elem_delete(ENGINE_HANDLE* handle, const void* cookie,
+                                                 const void* key, const int nkey,
+                                                 const void* value, const int nbytes,
+                                                 const bool drop_if_empty, bool *dropped,
+                                                 uint16_t vbucket)
+{
+    struct default_engine *engine = get_handle(handle);
+    ENGINE_ERROR_CODE ret;
+    VBUCKET_GUARD(engine, vbucket);
+
+    ACTION_BEFORE_WRITE(cookie, key, nkey);
+    ret = map_elem_delete(engine, key, nkey, value, nbytes, drop_if_empty, dropped);
+    ACTION_AFTER_WRITE(cookie, ret);
+    return ret;
+}
+
+static ENGINE_ERROR_CODE default_map_elem_get(ENGINE_HANDLE* handle, const void* cookie,
+                                              const void* key, const int nkey, const uint32_t count,
+                                              const bool delete, const bool drop_if_empty,
+                                              eitem** eitem, uint32_t* eitem_count,
+                                              uint32_t* flags, bool* dropped, uint16_t vbucket)
+{
+    struct default_engine *engine = get_handle(handle);
+    ENGINE_ERROR_CODE ret;
+    VBUCKET_GUARD(engine, vbucket);
+
+    if (delete) ACTION_BEFORE_WRITE(cookie, key, nkey);
+    ret = map_elem_get(engine, key, nkey, count, delete, drop_if_empty,
+                       (map_elem_item**)eitem, eitem_count, flags, dropped);
+    if (delete) ACTION_AFTER_WRITE(cookie, ret);
+    return ret;
+}
+#endif
+
 /* Attrs */
 
 static ENGINE_ERROR_CODE default_getattr(ENGINE_HANDLE* handle, const void* cookie,
@@ -1156,6 +1247,16 @@ static void get_set_elem_info(ENGINE_HANDLE *handle, const void *cookie,
     elem_info->value  = elem->value;
 }
 
+#ifdef MAP_COLLECTION_SUPPORT
+static void get_map_elem_info(ENGINE_HANDLE *handle, const void *cookie,
+                              const eitem* eitem, eitem_info *elem_info)
+{
+    map_elem_item *elem = (map_elem_item*)eitem;
+    elem_info->nbytes = elem->nbytes;
+    elem_info->value  = elem->value;
+}
+#endif
+
 static void get_btree_elem_info(ENGINE_HANDLE *handle, const void *cookie,
                                 const eitem* eitem, eitem_info *elem_info)
 {
@@ -1216,6 +1317,15 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface, GET_SERVER_API get_server_
          .set_elem_delete   = default_set_elem_delete,
          .set_elem_exist    = default_set_elem_exist,
          .set_elem_get      = default_set_elem_get,
+#ifdef MAP_COLLECTION_SUPPORT
+         /* MAP functions */
+         .map_struct_create = default_map_struct_create,
+         .map_elem_alloc    = default_map_elem_alloc,
+         .map_elem_release  = default_map_elem_release,
+         .map_elem_insert   = default_map_elem_insert,
+         .map_elem_delete   = default_map_elem_delete,
+         .map_elem_get      = default_map_elem_get,
+#endif
          /* B+Tree functions */
          .btree_struct_create = default_btree_struct_create,
          .btree_elem_alloc   = default_btree_elem_alloc,
@@ -1252,6 +1362,9 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface, GET_SERVER_API get_server_
          .get_item_info       = get_item_info,
          .get_list_elem_info  = get_list_elem_info,
          .get_set_elem_info   = get_set_elem_info,
+#ifdef MAP_COLLECTION_SUPPORT
+         .get_map_elem_info   = get_map_elem_info,
+#endif
          .get_btree_elem_info = get_btree_elem_info
       },
       .server = *api,
@@ -1282,6 +1395,9 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface, GET_SERVER_API get_server_
          .item_size_max= 1024 * 1024,
          .max_list_size = 50000,
          .max_set_size = 50000,
+#ifdef MAP_COLLECTION_SUPPORT
+         .max_map_size = 50000,
+#endif
          .max_btree_size = 50000,
          .prefix_delimiter = ':',
        },
