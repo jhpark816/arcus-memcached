@@ -33,6 +33,11 @@
                     C(sop_delete_elem_hits) C(sop_delete_none_hits) C(sop_delete_misses) \
                     C(sop_get_elem_hits) C(sop_get_none_hits) C(sop_get_misses) \
                     C(sop_exist_hits) C(sop_exist_misses)
+#ifdef MAP_COLLECTION_SUPPORT
+#define TK_MOPS(C)  C(mop_create_oks) C(mop_insert_hits) C(mop_insert_misses) \
+                    C(mop_delete_elem_hits) C(mop_delete_none_hits) C(mop_delete_misses) \
+                    C(mop_get_elem_hits) C(mop_get_none_hits) C(mop_get_misses)
+#endif
 #define TK_BOPS(C)  C(bop_create_oks) C(bop_insert_hits) C(bop_insert_misses) \
                     C(bop_update_elem_hits) C(bop_update_none_hits) C(bop_update_misses) \
                     C(bop_delete_elem_hits) C(bop_delete_none_hits) C(bop_delete_misses) \
@@ -79,6 +84,9 @@ typedef struct topkey_item {
     TK_OPS(TK_CUR)
     TK_LOPS(TK_CUR)
     TK_SOPS(TK_CUR)
+#ifdef MAP_COLLECTION_SUPPORT
+    TK_MOPS(TK_CUR)
+#endif
     TK_BOPS(TK_CUR)
 #ifdef SUPPORT_BOP_MGET
     TK_BMGET(TK_CUR)

@@ -1417,6 +1417,14 @@ static int32_t do_coll_real_maxcount(hash_item *it, int32_t maxcount)
         else if (maxcount == 0)
             real_maxcount = default_btree_size;
     }
+#ifdef MAP_COLLECTION_SUPPORT
+    else if (IS_SET_ITEM(it)) {
+        if (maxcount < 0 || maxcount > max_map_size)
+            real_maxcount = max_map_size;
+        else if (maxcount == 0)
+            real_maxcount = default_map_size;
+    }
+#endif
     return real_maxcount;
 }
 
@@ -2487,7 +2495,7 @@ static void do_map_elem_unlink(struct default_engine *engine,
 {
     if (prev != NULL) prev->next = elem->next;
     else              node->htab[hidx] = elem->next;
-    elem->next = (set_elem_item *)ADDR_MEANS_UNLINKED;
+    elem->next = (map_elem_item *)ADDR_MEANS_UNLINKED;
     node->hcnt[hidx] -= 1;
     node->tot_elem_cnt -= 1;
 
@@ -2501,31 +2509,6 @@ static void do_map_elem_unlink(struct default_engine *engine,
     if (elem->refcount == 0) {
         do_map_elem_free(engine, elem);
     }
-}
-
-static map_elem_item *do_map_elem_find(map_meta_info *info, const char *val, const int vlen)
-{
-    map_elem_item *elem = NULL;
-
-    if (info->root != NULL) {
-        map_hash_node *node = info->root;
-        int hval = genhash_string_hash(val, vlen);
-        int hidx;
-
-        while (node != NULL) {
-            hidx = MAP_GET_HASHIDX(hval, node->hdepth);
-            if (node->hcnt[hidx] >= 0) /* map element hash chain */
-                break;
-            node = node->htab[hidx];
-        }
-        assert(node != NULL);
-
-        for (elem = node->htab[hidx]; elem != NULL; elem = elem->next) {
-            if (map_hash_eq(hval, val, vlen, elem->hval, elem->value, elem->nbytes))
-                break;
-        }
-    }
-    return elem;
 }
 
 static ENGINE_ERROR_CODE do_map_elem_traverse_delete(struct default_engine *engine,
@@ -6581,7 +6564,7 @@ ENGINE_ERROR_CODE map_struct_create(struct default_engine *engine,
         do_item_release(engine, it);
         ret = ENGINE_KEY_EEXISTS;
     } else {
-        it = do_set_item_alloc(engine, key, nkey, attrp, cookie);
+        it = do_map_item_alloc(engine, key, nkey, attrp, cookie);
         if (it == NULL) {
             ret = ENGINE_ENOMEM;
         } else {
@@ -6597,7 +6580,7 @@ map_elem_item *map_elem_alloc(struct default_engine *engine, const int nbytes, c
 {
     map_elem_item *elem;
     pthread_mutex_lock(&engine->cache_lock);
-    elem = do_set_elem_alloc(engine, nbytes, cookie);
+    elem = do_map_elem_alloc(engine, nbytes, cookie);
     pthread_mutex_unlock(&engine->cache_lock);
     return elem;
 }
@@ -6607,7 +6590,7 @@ void map_elem_release(struct default_engine *engine, map_elem_item **elem_array,
     int cnt = 0;
     pthread_mutex_lock(&engine->cache_lock);
     while (cnt < elem_count) {
-        do_set_elem_release(engine, elem_array[cnt++]);
+        do_map_elem_release(engine, elem_array[cnt++]);
         if ((cnt % 100) == 0 && cnt < elem_count) {
             pthread_mutex_unlock(&engine->cache_lock);
             pthread_mutex_lock(&engine->cache_lock);
@@ -6625,9 +6608,9 @@ ENGINE_ERROR_CODE map_elem_insert(struct default_engine *engine, const char *key
     *created = false;
 
     pthread_mutex_lock(&engine->cache_lock);
-    ret = do_set_item_find(engine, key, nkey, false, &it);
+    ret = do_map_item_find(engine, key, nkey, false, &it);
     if (ret == ENGINE_KEY_ENOENT && attrp != NULL) {
-        it = do_set_item_alloc(engine, key, nkey, attrp, cookie);
+        it = do_map_item_alloc(engine, key, nkey, attrp, cookie);
         if (it == NULL) {
             ret = ENGINE_ENOMEM;
         } else {
@@ -6640,7 +6623,7 @@ ENGINE_ERROR_CODE map_elem_insert(struct default_engine *engine, const char *key
         }
     }
     if (ret == ENGINE_SUCCESS) {
-        ret = do_set_elem_insert(engine, it, elem, cookie);
+        ret = do_map_elem_insert(engine, it, elem, cookie);
         if (ret != ENGINE_SUCCESS && *created) {
             do_item_unlink(engine, it, ITEM_UNLINK_ABORT);
         }
@@ -6665,7 +6648,7 @@ ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
     ret = do_set_item_find(engine, key, nkey, false, &it);
     if (ret == ENGINE_SUCCESS) { /* it != NULL */
         info = (map_meta_info *)item_get_meta(it);
-        ret = do_set_elem_delete_with_value(engine, info, value, nbytes,
+        ret = do_map_elem_delete_with_value(engine, info, value, nbytes,
                                             ELEM_DELETE_NORMAL);
         if (ret == ENGINE_SUCCESS) {
             if (info->ccnt == 0 && drop_if_empty) {
@@ -6697,7 +6680,7 @@ ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
             if ((info->mflags & COLL_META_FLAG_READABLE) == 0) {
                 ret = ENGINE_UNREADABLE; break;
             }
-            *elem_count = do_set_elem_get(engine, info, count, delete, elem_array);
+            *elem_count = do_map_elem_get(engine, info, count, delete, elem_array);
             if (*elem_count > 0) {
                 if (info->ccnt == 0 && drop_if_empty) {
                     assert(delete == true);

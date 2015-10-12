@@ -578,8 +578,8 @@ void stats_prefix_record_bop_gbp(const char *key, const size_t nkey, const bool 
 
 #ifdef MAP_COLLECTION_SUPPORT
 /*
- *  * MAP stats
- *   */
+ * MAP stats
+ */
 void stats_prefix_record_mop_create(const char *key, const size_t nkey) {
     PREFIX_STATS *pfs;
 

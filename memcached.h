@@ -234,6 +234,13 @@ struct thread_stats {
     uint64_t          cmd_sop_delete;
     uint64_t          cmd_sop_get;
     uint64_t          cmd_sop_exist;
+#ifdef MAP_COLLECTION_SUPPORT
+    /* map command stats */
+    uint64_t          cmd_mop_create;
+    uint64_t          cmd_mop_insert;
+    uint64_t          cmd_mop_delete;
+    uint64_t          cmd_mop_get;
+#endif
     /* btree command stats */
     uint64_t          cmd_bop_create;
     uint64_t          cmd_bop_insert;
@@ -277,6 +284,18 @@ struct thread_stats {
     uint64_t          sop_get_misses;
     uint64_t          sop_exist_hits;
     uint64_t          sop_exist_misses;
+#ifdef MAP_COLLECTION_SUPPORT
+    /* map hit & miss stats */
+    uint64_t          mop_create_oks;
+    uint64_t          mop_insert_hits;
+    uint64_t          mop_insert_misses;
+    uint64_t          mop_delete_elem_hits;
+    uint64_t          mop_delete_none_hits;
+    uint64_t          mop_delete_misses;
+    uint64_t          mop_get_elem_hits;
+    uint64_t          mop_get_none_hits;
+    uint64_t          mop_get_misses;
+#endif
     /* btree hit & miss stats */
     uint64_t          bop_create_oks;
     uint64_t          bop_insert_hits;

@@ -530,7 +530,7 @@ ENGINE_ERROR_CODE map_struct_create(struct default_engine *engine,
                                     const char *key, const size_t nkey,
                                     item_attr *attrp, const void *cookie);
 
-set_elem_item *map_elem_alloc(struct default_engine *engine,
+map_elem_item *map_elem_alloc(struct default_engine *engine,
                               const int nbytes, const void *cookie);
 
 void map_elem_release(struct default_engine *engine,

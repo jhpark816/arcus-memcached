@@ -30,6 +30,7 @@ struct iovec {
 #include <sys/uio.h>
 #endif
 
+#define MAP_COLLECTION_SUPPORT
 #define SUPPORT_BOP_MGET
 #define SUPPORT_BOP_SMGET
 #define MAX_EFLAG_COMPARE_COUNT 100
@@ -105,6 +106,14 @@ extern "C" {
         OPERATION_SOP_EXIST,         /**< Set operation with check existence of element semantics */
         OPERATION_SOP_GET,           /**< Set operation with get element semantics */
 
+#ifdef MAP_COLLECTION_SUPPORT
+        /* map operation */
+        OPERATION_MOP_CREATE = 0x80, /**< Map operation with create structure semantics */
+        OPERATION_MOP_INSERT,        /**< Map operation with insert element semantics */
+        OPERATION_MOP_DELETE,        /**< Map operation with delete element semantics */
+        OPERATION_MOP_GET,           /**< Map operation with get element semantics */
+#endif
+
         /* b+tree operation */
         OPERATION_BOP_CREATE = 0x70, /**< B+tree operation with create structure semantics */
         OPERATION_BOP_INSERT,        /**< B+tree operation with insert element semantics */
@@ -120,14 +129,6 @@ extern "C" {
         OPERATION_BOP_MGET,          /**< B+tree operation with mget(multiple get) element semantics */
         // SUPPORT_BOP_SMGET
         OPERATION_BOP_SMGET          /**< B+tree operation with smget(sort-merge get) element semantics */
-
-#ifdef MAP_COLLECTION_SUPPORT
-        /* map operation */
-        OPERATION_MOP_CREATE = 0x80, /**< Map operation with create structure semantics */
-        OPERATION_MOP_INSERT,        /**< Map operation with insert element semantics */
-        OPERATION_MOP_DELETE,        /**< Map operation with delete element semantics */
-        OPERATION_MOP_GET,           /**< Map operation with get element semantics */
-#endif
     } ENGINE_COLL_OPERATION;
 
     /* item type */
