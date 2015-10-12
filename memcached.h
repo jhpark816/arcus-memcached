@@ -605,6 +605,10 @@ struct conn {
 
 #ifdef DETECT_LONG_REQUEST
 
+/*
+ * Detect long request
+ */
+
 /* long request command number */
 /* sop get    : number 0       */
 /* lop insert : number 1       */
@@ -614,6 +618,8 @@ struct conn {
 /* bop get    : number 5       */
 /* bop count  : number 6       */
 /* bop gbp    : number 7       */
+/* *************************** */
+
 #define DETECT_LONGQ_BASE 4000
 #define DETECT_COMMAND_NUM 8
 #define DETECT_LONGQ_SAVE_SIZE 20

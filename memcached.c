@@ -7895,6 +7895,9 @@ static void process_extension_command(conn *c, token_t *tokens, size_t ntokens)
 }
 
 #ifdef DETECT_LONG_REQUEST
+/*
+ * Detect long request function
+ */
 static void detlongq_shorted(char *str, int cmdnum)
 {
     switch(cmdnum) {
@@ -7953,13 +7956,15 @@ static int detlongq_show(conn *c)
         char *str = malloc(DETECT_LONGQ_PER_BUFFER_SIZE + DETECT_LONGQ_SAVE_SIZE * 3);
         if (str == NULL) {
             mc_logger->log(EXTENSION_LOG_WARNING, c,
-                           "Shorted string allocate failed\n");
+                           "Detlongq return string allocate failed\n");
+            free(detlongq.returnstr);
             return -1;
         }
         detlongq_shorted(str, ii);
         memcpy(detlongq.returnstr + len, str, strlen(str));
         len += strlen(str);
         free(str);
+        str = NULL;
     }
     return 0;
 }
@@ -7987,31 +7992,32 @@ static void detlongq_keystr(char *cmdstr, char* key, int cmdnum, uint32_t count)
         detlongq.key[cmdnum].count++;
         switch(cmdnum) {
         case 0 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "sop get %s get_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "sop get %s | get_count : %d", key, count);
             break;
         case 1 :
             snprintf(cmdstr, DETECT_INPUT_SIZE, "lop insert %s", key);
             break;
         case 2 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "lop delete %s del_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "lop delete %s | del_count : %d", key, count);
             break;
         case 3 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "lop get %s get_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "lop get %s | get_count : %d", key, count);
             break;
         case 4 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop delete %s del_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop delete %s | del_count : %d", key, count);
             break;
         case 5 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop get %s get_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop get %s | get_count : %d", key, count);
             break;
         case 6 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop count %s count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop count %s | count : %d", key, count);
             break;
         case 7 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop gbp %s get_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop gbp %s | get_count : %d", key, count);
             break;
         default :
             sprintf(cmdstr, "error!");
+            detlongq.key[cmdnum].count--;
             break;
         }
     } else {
@@ -8044,49 +8050,50 @@ static void detlongq_final()
 
     pthread_mutex_destroy(&detlongq.lock);
 
-    for(ii=0; ii < DETECT_COMMAND_NUM; ii++) {
+    for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
          free(detlongq.buffer[ii].data);
     }
 }
 
 static int detlongq_start()
 {
-    int ii, jj, retval;
+    int ii, jj, ret;
 
     pthread_mutex_lock(&detlongq.lock);
     if (detlongq.on_detecting == false) {
         for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
             for(jj = 0; jj < DETECT_LONGQ_SAVE_SIZE; jj++) {
-                memset(&detlongq.key[ii].data[jj], 0, sizeof(char));
+                memset(&detlongq.key[ii].data[jj], 0, DETECT_INPUT_SIZE);
             }
-            detlongq.key[ii].count = 0;
+            detlongq.buffer[ii].data[0] = '\0';
             detlongq.buffer[ii].offset = 0;
+            detlongq.key[ii].count = 0;
             detlongq.longcount[ii] = 0;
         }
         detlongq.on_detecting = true;
-        retval = 0;
+        ret = 0;
     } else {
-        retval = -1;
+        ret = -1;
     }
     pthread_mutex_unlock(&detlongq.lock);
 
-    return retval;
+    return ret;
 }
 
 static int detlongq_stop()
 {
-    int retval;
+    int ret;
 
     pthread_mutex_lock(&detlongq.lock);
     if (detlongq.on_detecting == true) {
         detlongq.on_detecting = false;
-        retval = 0;
+        ret = 0;
     } else {
-        retval = -1;
+        ret = -1;
     }
     pthread_mutex_unlock(&detlongq.lock);
 
-    return retval;
+    return ret;
 }
 
 static void detlongq_write(char client_ip[], char* command, int cmdnum)
@@ -8107,9 +8114,9 @@ static void detlongq_write(char client_ip[], char* command, int cmdnum)
     detlongq.buffer[cmdnum].offset += inputlen;
 }
 
-static int detlongq_process(conn *c, char* key, int cmdnum, uint32_t count)
+static int process_detlongq(conn *c, char* key, int cmdnum, uint32_t count)
 {
-    int retval;
+    int ret;
     char *cmdstr = malloc(DETECT_INPUT_SIZE);
     if (cmdstr == NULL) {
         mc_logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -8129,16 +8136,16 @@ static int detlongq_process(conn *c, char* key, int cmdnum, uint32_t count)
         free(cmdstr);
 
         /* internal stop */
-        if (detlongq.key[cmdnum].count > DETECT_LONGQ_SAVE_SIZE - 1) {
+        if (detlongq.key[cmdnum].count >= DETECT_LONGQ_SAVE_SIZE) {
             detlongq.on_detecting = false;
         }
-        retval = 0;
+        ret = 0;
     } else {
-        retval = -1;
+        ret = -1;
     }
     pthread_mutex_unlock(&detlongq.lock);
 
-    return retval;
+    return ret;
 }
 
 static void process_detlongrq_command(conn *c, token_t *tokens, size_t ntokens)
@@ -8178,6 +8185,7 @@ static void process_detlongrq_command(conn *c, token_t *tokens, size_t ntokens)
     } else if (ntokens > 2 && strcmp(type, "show") == 0) {
         if (detlongq_show(c) == 0) {
             write_and_free(c, detlongq.returnstr, strlen(detlongq.returnstr));
+            detlongq.returnstr = NULL;
         }
     } else {
         out_string(c,
@@ -8351,6 +8359,21 @@ static void process_lop_get(conn *c, char *key, size_t nkey,
             c->coll_op     = OPERATION_LOP_GET;
             conn_set_state(c, conn_mwrite);
             c->msgcurr     = 0;
+#ifdef DETECT_LONG_REQUEST
+            /* long request detection */
+            if (detlongq.on_checking) {
+                if ((from_index == 0 || from_index == -1) && elem_count < detlongq.base) {
+                    /* not long request */
+                } else if ((to_index == 0 || to_index == -1) && elem_count < detlongq.base) {
+                    /* not long request */
+                } else {
+                    /* long request */
+                    if (process_detlongq(c, key, 3, elem_count) == -1) {
+                        detlongq.on_checking = false;
+                    }
+                }
+            }
+#endif
         } else { /* ENGINE_ENOMEM */
             STATS_NOKEY(c, cmd_lop_get);
             mc_engine.v1->list_elem_release(mc_engine.v0, c, elem_array, elem_count);
@@ -8383,20 +8406,6 @@ static void process_lop_get(conn *c, char *key, size_t nkey,
     if (ret != ENGINE_SUCCESS && elem_array != NULL) {
         free((void *)elem_array);
     }
-#ifdef DETECT_LONG_REQUEST
-    if (detlongq.on_checking) {
-        if ((from_index == 0 || from_index == -1) && elem_count < detlongq.base) {
-            /* not long request */
-        } else if ((to_index == 0 || to_index == -1) && elem_count < detlongq.base) {
-            /* not long request */
-        } else {
-            /* long request */
-            if (detlongq_process(c, key, 3, elem_count) == -1) {
-                detlongq.on_checking = false;
-            }
-        }
-    }
-#endif
 }
 
 static void process_lop_prepare_nread(conn *c, int cmd, size_t vlen,
@@ -8428,6 +8437,16 @@ static void process_lop_prepare_nread(conn *c, int cmd, size_t vlen,
         c->coll_nkey   = nkey;
         c->coll_index  = index;
         conn_set_state(c, conn_nread);
+#ifdef DETECT_LONG_REQUEST
+        /* long request detection */
+        if (detlongq.on_checking) {
+            if (index != 0 && index != -1) {
+                if (process_detlongq(c, key, 1, 0) == -1) {
+                    detlongq.on_checking = false;
+                }
+            }
+        }
+#endif
         }
         break;
     case ENGINE_DISCONNECT:
@@ -8443,16 +8462,6 @@ static void process_lop_prepare_nread(conn *c, int cmd, size_t vlen,
         c->write_and_go = conn_swallow;
         c->sbytes = vlen;
     }
-
-#ifdef DETECT_LONG_REQUEST
-    if (detlongq.on_checking) {
-        if (index != 0 && index != -1) {
-            if (detlongq_process(c, key, 1, 0) == -1) {
-                detlongq.on_checking = false;
-            }
-        }
-    }
-#endif
 }
 
 static void process_lop_create(conn *c, char *key, size_t nkey, item_attr *attrp) {
@@ -8513,6 +8522,21 @@ static void process_lop_delete(conn *c, char *key, size_t nkey,
         STATS_ELEM_HITS(c, lop_delete, key, nkey);
         if (dropped == false) out_string(c, "DELETED");
         else                  out_string(c, "DELETED_DROPPED");
+#ifdef DETECT_LONG_REQUEST
+        /* long request detection */
+        if (detlongq.on_checking) {
+            if ((from_index == 0 || from_index == -1) && del_count < detlongq.base) {
+                /* not long request */
+            } else if ((to_index == 0 || to_index == -1) && del_count < detlongq.base) {
+                /* not long request */
+            } else {
+                /* long request */
+                if (process_detlongq(c, key, 2, del_count) == -1) {
+                    detlongq.on_checking = false;
+                }
+            }
+        }
+#endif
         break;
     case ENGINE_ELEM_ENOENT:
         STATS_NONE_HITS(c, lop_delete, key, nkey);
@@ -8530,20 +8554,6 @@ static void process_lop_delete(conn *c, char *key, size_t nkey,
         if (ret == ENGINE_EBADTYPE) out_string(c, "TYPE_MISMATCH");
         else handle_unexpected_errorcode_ascii(c, ret);
     }
-#ifdef DETECT_LONG_REQUEST
-    if (detlongq.on_checking) {
-        if ((from_index == 0 || from_index == -1) && del_count < detlongq.base) {
-            /* not long request */
-        } else if ((to_index == 0 || to_index == -1) && del_count < detlongq.base) {
-            /* not long request */
-        } else {
-            /* long request */
-            if (detlongq_process(c, key, 2, del_count) == -1) {
-                detlongq.on_checking = false;
-            }
-        }
-    }
-#endif
 }
 
 static inline int get_list_range_from_str(char *str, int32_t *from_index, int32_t *to_index)
@@ -8772,6 +8782,16 @@ static void process_sop_get(conn *c, char *key, size_t nkey, uint32_t count,
             c->coll_op     = OPERATION_SOP_GET;
             conn_set_state(c, conn_mwrite);
             c->msgcurr     = 0;
+#ifdef DETECT_LONG_REQUEST
+            /* long request detection */
+            if (detlongq.on_checking) {
+                if (elem_count >= detlongq.base) {
+                    if (process_detlongq(c, key, 0, elem_count) == -1) {
+                        detlongq.on_checking = false;
+                    }
+                }
+            }
+#endif
         } else { /* ENGINE_ENOMEM */
             STATS_NOKEY(c, cmd_sop_get);
             mc_engine.v1->set_elem_release(mc_engine.v0, c, elem_array, elem_count);
@@ -8804,15 +8824,6 @@ static void process_sop_get(conn *c, char *key, size_t nkey, uint32_t count,
     if (ret != ENGINE_SUCCESS && elem_array != NULL) {
         free((void *)elem_array);
     }
-#ifdef DETECT_LONG_REQUEST
-    if (detlongq.on_checking) {
-        if (elem_count >= detlongq.base) {
-            if (detlongq_process(c, key, 0, elem_count) == -1) {
-                detlongq.on_checking = false;
-            }
-        }
-    }
-#endif
 }
 
 static void process_sop_prepare_nread(conn *c, int cmd, size_t vlen, char *key, size_t nkey) {
@@ -9145,6 +9156,16 @@ static void process_bop_get(conn *c, char *key, size_t nkey,
             c->coll_op     = OPERATION_BOP_GET;
             conn_set_state(c, conn_mwrite);
             c->msgcurr     = 0;
+#ifdef DETECT_LONG_REQUEST
+            /* long request detection */
+            if (detlongq.on_checking) {
+                if (access_count >= detlongq.base) {
+                    if (process_detlongq(c, key, 5, access_count) == -1) {
+                        detlongq.on_checking = false;
+                    }
+                }
+            }
+#endif
         } else { /* ENGINE_ENOMEM */
             STATS_NOKEY(c, cmd_bop_get);
             mc_engine.v1->btree_elem_release(mc_engine.v0, c, elem_array, elem_count);
@@ -9180,15 +9201,6 @@ static void process_bop_get(conn *c, char *key, size_t nkey,
     if (ret != ENGINE_SUCCESS && elem_array != NULL) {
         free((void *)elem_array);
     }
-#ifdef DETECT_LONG_REQUEST
-    if (detlongq.on_checking) {
-        if (access_count >= detlongq.base) {
-            if (detlongq_process(c, key, 5, access_count) == -1) {
-                detlongq.on_checking = false;
-            }
-        }
-    }
-#endif
 }
 
 static void process_bop_count(conn *c, char *key, size_t nkey,
@@ -9214,6 +9226,16 @@ static void process_bop_count(conn *c, char *key, size_t nkey,
 
         sprintf(buffer, "COUNT=%u", elem_count);
         out_string(c, buffer);
+#ifdef DETECT_LONG_REQUEST
+        /* long request detection */
+        if (detlongq.on_checking) {
+            if (access_count >= detlongq.base) {
+                if (process_detlongq(c, key, 6, access_count) == -1) {
+                    detlongq.on_checking = false;
+                }
+            }
+        }
+#endif
         }
         break;
     case ENGINE_DISCONNECT:
@@ -9231,15 +9253,6 @@ static void process_bop_count(conn *c, char *key, size_t nkey,
         else if (ret == ENGINE_EBADBKEY) out_string(c, "BKEY_MISMATCH");
         else out_string(c, "SERVER_ERROR internal");
     }
-#ifdef DETECT_LONG_REQUEST
-    if (detlongq.on_checking) {
-        if (access_count >= detlongq.base) {
-            if (detlongq_process(c, key, 6, access_count) == -1) {
-                detlongq.on_checking = false;
-            }
-        }
-    }
-#endif
 }
 
 static void process_bop_position(conn *c, char *key, size_t nkey,
@@ -9472,6 +9485,16 @@ static void process_bop_gbp(conn *c, char *key, size_t nkey, ENGINE_BTREE_ORDER 
             c->coll_op     = OPERATION_BOP_GBP;
             conn_set_state(c, conn_mwrite);
             c->msgcurr     = 0;
+#ifdef DETECT_LONG_REQUEST
+            /* long request detection */
+            if (detlongq.on_checking) {
+                if (elem_count >= detlongq.base) {
+                    if (process_detlongq(c, key, 7, elem_count) == -1) {
+                        detlongq.on_checking = false;
+                    }
+                }
+            }
+#endif
         } else { /* ENGINE_ENOMEM */
             STATS_NOKEY(c, cmd_bop_gbp);
             mc_engine.v1->btree_elem_release(mc_engine.v0, c, elem_array, elem_count);
@@ -9502,16 +9525,6 @@ static void process_bop_gbp(conn *c, char *key, size_t nkey, ENGINE_BTREE_ORDER 
     if (ret != ENGINE_SUCCESS && elem_array != NULL) {
         free((void *)elem_array);
     }
-#ifdef DETECT_LONG_REQUEST
-    if (detlongq.on_checking) {
-        if (elem_count >= detlongq.base) {
-            if (detlongq_process(c, key, 7, elem_count) == -1) {
-                detlongq.on_checking = false;
-            }
-        }
-    }
-#endif
-
 }
 
 static void process_bop_update_prepare_nread(conn *c, int cmd, char *key, size_t nkey, const int vlen)
@@ -9747,6 +9760,16 @@ static void process_bop_delete(conn *c, char *key, size_t nkey,
         STATS_ELEM_HITS(c, bop_delete, key, nkey);
         if (dropped == false) out_string(c, "DELETED");
         else                  out_string(c, "DELETED_DROPPED");
+#ifdef DETECT_LONG_REQUEST
+        /* long request detection */
+        if (detlongq.on_checking) {
+            if (acc_count >= detlongq.base) {
+                if (process_detlongq(c, key, 4, acc_count) == -1) {
+                    detlongq.on_checking = false;
+                }
+            }
+        }
+#endif
         break;
     case ENGINE_ELEM_ENOENT:
         STATS_NONE_HITS(c, bop_delete, key, nkey);
@@ -9765,15 +9788,6 @@ static void process_bop_delete(conn *c, char *key, size_t nkey,
         else if (ret == ENGINE_EBADBKEY) out_string(c, "BKEY_MISMATCH");
         else handle_unexpected_errorcode_ascii(c, ret);
     }
-#ifdef DETECT_LONG_REQUEST
-    if (detlongq.on_checking) {
-        if (acc_count >= detlongq.base) {
-            if (detlongq_process(c, key, 4, acc_count) == -1) {
-                detlongq.on_checking = false;
-            }
-        }
-    }
-#endif
 }
 
 static void process_bop_arithmetic(conn *c, char *key, size_t nkey, bkey_range *bkrange,
