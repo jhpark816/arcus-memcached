@@ -448,6 +448,36 @@ ENGINE_ERROR_CODE set_elem_get(struct default_engine *engine,
                                set_elem_item **elem_array, uint32_t *elem_count,
                                uint32_t *flags, bool *dropped);
 
+#ifdef MAP_COLLECTION_SUPPORT
+ENGINE_ERROR_CODE map_struct_create(struct default_engine *engine,
+                                    const char *key, const size_t nkey,
+                                    item_attr *attrp, const void *cookie);
+
+map_elem_item *map_elem_alloc(struct default_engine *engine,
+                              const int nbytes, const void *cookie);
+
+void map_elem_release(struct default_engine *engine,
+                      map_elem_item **elem_array, const int elem_count);
+
+ENGINE_ERROR_CODE map_elem_insert(struct default_engine *engine,
+                                  const char *key, const size_t nkey,
+                                  map_elem_item *elem,
+                                  item_attr *attrp,
+                                  bool *created, const void *cookie);
+
+ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
+                                  const char *key, const size_t nkey,
+                                  const char *value, const size_t nbytes,
+                                  const bool drop_if_empty,
+                                  bool *dropped);
+
+ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
+                               const char *key, const size_t nkey, const uint32_t count,
+                               const bool delete, const bool drop_if_empty,
+                               map_elem_item **elem_array, uint32_t *elem_count,
+                               uint32_t *flags, bool *dropped);
+#endif
+
 ENGINE_ERROR_CODE btree_struct_create(struct default_engine *engine,
                                       const char *key, const size_t nkey,
                                       item_attr *attrp, const void *cookie);
@@ -525,36 +555,6 @@ ENGINE_ERROR_CODE btree_elem_smget(struct default_engine *engine,
                                    bool *trimmed, bool *duplicated);
 #endif
 
-#ifdef MAP_COLLECTION_SUPPORT
-ENGINE_ERROR_CODE map_struct_create(struct default_engine *engine,
-                                    const char *key, const size_t nkey,
-                                    item_attr *attrp, const void *cookie);
-
-map_elem_item *map_elem_alloc(struct default_engine *engine,
-                              const int nbytes, const void *cookie);
-
-void map_elem_release(struct default_engine *engine,
-                      map_elem_item **elem_array, const int elem_count);
-
-ENGINE_ERROR_CODE map_elem_insert(struct default_engine *engine,
-                                  const char *key, const size_t nkey,
-                                  map_elem_item *elem,
-                                  item_attr *attrp,
-                                  bool *created, const void *cookie);
-
-ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
-                                  const char *key, const size_t nkey,
-                                  const char *value, const size_t nbytes,
-                                  const bool drop_if_empty,
-                                  bool *dropped);
-
-ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
-                               const char *key, const size_t nkey, const uint32_t count,
-                               const bool delete, const bool drop_if_empty,
-                               map_elem_item **elem_array, uint32_t *elem_count,
-                               uint32_t *flags, bool *dropped);
-#endif
-
 ENGINE_ERROR_CODE item_getattr(struct default_engine *engine,
                                const void* key, const int nkey,
                                ENGINE_ITEM_ATTR *attr_ids, const uint32_t attr_count,
@@ -588,10 +588,10 @@ bool item_is_valid(struct default_engine *engine, hash_item *item);
 bool item_is_linked(const hash_item* item);
 bool list_elem_is_linked(list_elem_item *elem);
 bool set_elem_is_linked(set_elem_item *elem);
-bool btree_elem_is_linked(btree_elem_item *elem);
 #ifdef MAP_COLLECTION_SUPPORT
 bool map_elem_is_linked(map_elem_item *elem);
 #endif
+bool btree_elem_is_linked(btree_elem_item *elem);
 
 /*
  * Item and Element size functions
@@ -599,11 +599,11 @@ bool map_elem_is_linked(map_elem_item *elem);
 uint32_t item_ntotal(struct default_engine *engine, hash_item *item);
 uint32_t list_elem_ntotal(list_elem_item *elem);
 uint32_t set_elem_ntotal(set_elem_item *elem);
-uint32_t btree_elem_ntotal(btree_elem_item *elem);
-uint8_t  btree_real_nbkey(uint8_t nbkey);
 #ifdef MAP_COLLECTION_SUPPORT
 uint32_t map_elem_ntotal(map_elem_item *elem);
 #endif
+uint32_t btree_elem_ntotal(btree_elem_item *elem);
+uint8_t  btree_real_nbkey(uint8_t nbkey);
 
 /**
  * Start the item scrubber

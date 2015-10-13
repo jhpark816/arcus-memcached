@@ -6533,6 +6533,7 @@ static void complete_nread(conn *c)
 #define BOP_KEY_TOKEN 2
 #ifdef MAP_COLLECTION_SUPPORT
 #define MOP_KEY_TOKEN 2
+#define MOP_CNUM_TOKEN 2
 #endif
 
 #define MAX_TOKENS 30
@@ -9203,7 +9204,6 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
-
     if ((ntokens >= 5 && ntokens <= 12) && (strcmp(subcommand,"insert") == 0))
     {
         int32_t vlen;
@@ -9248,13 +9248,13 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
     {
         set_noreply_maybe(c, tokens, ntokens);
 
-        int read_ntokens = SOP_KEY_TOKEN+1;
+        int read_ntokens = MOP_KEY_TOKEN+1;
         int post_ntokens = 1 + (c->noreply ? 1 : 0);
         int rest_ntokens = ntokens - read_ntokens - post_ntokens;
 
         c->coll_attrp = &c->coll_attr_space;
         if (get_coll_create_attr_from_tokens(&tokens[read_ntokens], rest_ntokens,
-                                             ITEM_TYPE_SET, c->coll_attrp) != 0) {
+                                             ITEM_TYPE_MAP, c->coll_attrp) != 0) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -9273,14 +9273,14 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
 
         c->coll_drop = false;
 
-        if (! safe_strtol(tokens[SOP_KEY_TOKEN+1].value, &vlen) || vlen < 0) {
+        if (! safe_strtol(tokens[MOP_KEY_TOKEN+1].value, &vlen) || vlen < 0) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
         vlen += 2;
 
         if ((ntokens == 6 && c->noreply == 0) || (ntokens == 7)) {
-            if (strcmp(tokens[SOP_KEY_TOKEN+2].value, "drop")==0) {
+            if (strcmp(tokens[MOP_KEY_TOKEN+2].value, "drop")==0) {
                 c->coll_drop = true;
             } else {
                 out_string(c, "CLIENT_ERROR bad command line format");
@@ -9298,15 +9298,15 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         bool drop_if_empty = false;
         uint32_t count = 0;
 
-        if (! safe_strtoul(tokens[SOP_KEY_TOKEN+1].value, &count)) {
+        if (! safe_strtoul(tokens[MOP_KEY_TOKEN+1].value, &count)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
 
         if (ntokens == 6) {
-            if (strcmp(tokens[SOP_KEY_TOKEN+2].value, "delete")==0) {
+            if (strcmp(tokens[MOP_KEY_TOKEN+2].value, "delete")==0) {
                 delete = true;
-            } else if (strcmp(tokens[SOP_KEY_TOKEN+2].value, "drop")==0) {
+            } else if (strcmp(tokens[MOP_KEY_TOKEN+2].value, "drop")==0) {
                 delete = true;
                 drop_if_empty = true;
             } else {
@@ -9316,6 +9316,28 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         }
 
         process_mop_get(c, key, nkey, count, delete, drop_if_empty);
+    }
+    else if (ntokens >= 5 && (strcmp(subcommand, "mget") == 0))
+    {
+        int ii = 0;
+        uint32_t column_count = 0;
+
+        if (! safe_strtoul(tokens[MOP_CNUM_TOKEN].value, &column_count)) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+
+        for(ii = 0; ii < column_count; ii++) {
+            char *mkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].value;
+            size_t mnkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].length;
+            uint32_t mcount = 0;
+
+            if (! safe_strtoul(tokens[MOP_KEY_TOKEN+(ii*2)+2].value, &mcount)) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+            process_mop_get(c, mkey, mnkey, mcount, false, false);
+        }
     }
     else
     {
@@ -11253,7 +11275,7 @@ static void process_command(conn *c, char *command)
         process_bop_command(c, tokens, ntokens);
     }
 #ifdef MAP_COLLECTION_SUPPORT
-    else if ((ntokens >= 5 && ntokens <= 14) && (strcmp(tokens[COMMAND_TOKEN].value, "mop") == 0))
+    else if (ntokens >= 5  && (strcmp(tokens[COMMAND_TOKEN].value, "mop") == 0))
     {
         process_mop_command(c, tokens, ntokens);
     }

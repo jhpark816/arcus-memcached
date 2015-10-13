@@ -90,10 +90,10 @@ struct config {
    size_t item_size_max;
    size_t max_list_size;
    size_t max_set_size;
-   size_t max_btree_size;
 #ifdef MAP_COLLECTION_SUPPORT
    size_t max_map_size;
 #endif
+   size_t max_btree_size;
    bool   ignore_vbucket;
    char   prefix_delimiter;
    bool   vb0;

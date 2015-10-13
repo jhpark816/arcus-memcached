@@ -6548,7 +6548,7 @@ ENGINE_ERROR_CODE set_elem_get(struct default_engine *engine,
 }
 
 #ifdef MAP_COLLECTION_SUPPORT
-/* 
+/*
  * MAP Interface Functions
  */
 ENGINE_ERROR_CODE map_struct_create(struct default_engine *engine,
