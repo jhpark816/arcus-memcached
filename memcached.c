@@ -9320,11 +9320,28 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
     else if (ntokens >= 5 && (strcmp(subcommand, "mget") == 0))
     {
         int ii = 0;
+        bool delete = false;
+        bool drop_if_empty = false;
         uint32_t column_count = 0;
 
         if (! safe_strtoul(tokens[MOP_CNUM_TOKEN].value, &column_count)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
+        }
+
+        if (ntokens == column_count*2+5) {
+            if (strcmp(tokens[MOP_KEY_TOKEN+(column_count*2)+1].value, "delete")==0) {
+                delete = true;
+            }
+/*now drop not support
+            else if (strcmp(tokens[MOP_KEY_TOKEN+(column_count*2)+1].value, "drop")==0) {
+                delete = true;
+                drop_if_empty = true;
+            } */
+            else {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
         }
 
         for(ii = 0; ii < column_count; ii++) {
@@ -9336,7 +9353,7 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
             }
-            process_mop_get(c, mkey, mnkey, mcount, false, false);
+            process_mop_get(c, mkey, mnkey, mcount, delete, drop_if_empty);
         }
     }
     else
