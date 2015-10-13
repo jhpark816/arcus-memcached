@@ -63,7 +63,7 @@ typedef struct _set_elem_item {
 typedef struct _map_elem_item {
     uint16_t refcount;
     uint8_t  slabs_clsid;         /* which slab class we're in */
-    uint32_t hval;                /* hash value */
+    uint32_t hval;               /* hash value */
     struct _map_elem_item *next;  /* hash chain next */
     uint32_t nbytes;              /**< The total size of the data (in bytes) */
     char     value[1];            /**< the data itself */

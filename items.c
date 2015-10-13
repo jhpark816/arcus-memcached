@@ -2241,7 +2241,7 @@ static ENGINE_ERROR_CODE do_map_item_find(struct default_engine *engine,
     if (it == NULL) {
         return ENGINE_KEY_ENOENT;
     }
-    if (IS_SET_ITEM(it)) {
+    if (IS_MAP_ITEM(it)) {
         *item = it;
         return ENGINE_SUCCESS;
     } else {
@@ -2261,7 +2261,7 @@ static hash_item *do_map_item_alloc(struct default_engine *engine,
     hash_item *it = do_item_alloc(engine, key, nkey, attrp->flags, attrp->exptime,
                                   real_nbytes, cookie);
     if (it != NULL) {
-        it->iflag |= ITEM_IFLAG_SET;
+        it->iflag |= ITEM_IFLAG_MAP;
         it->nbytes = nbytes;
         memcpy(item_get_data(it), value, nbytes);
 
@@ -6645,7 +6645,7 @@ ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
     *dropped = false;
 
     pthread_mutex_lock(&engine->cache_lock);
-    ret = do_set_item_find(engine, key, nkey, false, &it);
+    ret = do_map_item_find(engine, key, nkey, false, &it);
     if (ret == ENGINE_SUCCESS) { /* it != NULL */
         info = (map_meta_info *)item_get_meta(it);
         ret = do_map_elem_delete_with_value(engine, info, value, nbytes,
@@ -6673,7 +6673,7 @@ ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
     ENGINE_ERROR_CODE ret;
 
     pthread_mutex_lock(&engine->cache_lock);
-    ret = do_set_item_find(engine, key, nkey, true, &it);
+    ret = do_map_item_find(engine, key, nkey, true, &it);
     if (ret == ENGINE_SUCCESS) {
         info = (map_meta_info *)item_get_meta(it);
         do {

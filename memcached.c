@@ -9146,12 +9146,10 @@ static void process_mop_prepare_nread(conn *c, int cmd, size_t vlen, char *key, 
         c->state = conn_closing;
         break;
     default:
-        if (cmd == (int)OPERATION_SOP_INSERT) {
-            STATS_NOKEY(c, cmd_sop_insert);
-        } else if (cmd == (int)OPERATION_SOP_DELETE) {
-            STATS_NOKEY(c, cmd_sop_delete);
-        } else {
-            STATS_NOKEY(c, cmd_sop_exist);
+        if (cmd == (int)OPERATION_MOP_INSERT) {
+            STATS_NOKEY(c, cmd_mop_insert);
+        } else if (cmd == (int)OPERATION_MOP_DELETE) {
+            STATS_NOKEY(c, cmd_mop_delete);
         }
 
         if (ret == ENGINE_E2BIG) out_string(c, "CLIENT_ERROR too large value");
@@ -9212,13 +9210,13 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
 
         set_pipe_noreply_maybe(c, tokens, ntokens);
 
-        if ((! safe_strtol(tokens[BOP_KEY_TOKEN+1].value, &vlen)) || (vlen < 0)) {
+        if ((! safe_strtol(tokens[MOP_KEY_TOKEN+1].value, &vlen)) || (vlen < 0)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
         vlen += 2;
 
-        int read_ntokens = BOP_KEY_TOKEN + 2;
+        int read_ntokens = MOP_KEY_TOKEN + 2;
         int post_ntokens = 1 + (c->noreply ? 1 : 0);
         int rest_ntokens = ntokens - read_ntokens - post_ntokens;
 
