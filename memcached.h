@@ -620,10 +620,10 @@ struct conn {
 /* bop gbp    : number 7       */
 /* *************************** */
 
-#define DETECT_LONGQ_BASE 4000
-#define DETECT_COMMAND_NUM 8
-#define DETECT_LONGQ_SAVE_SIZE 20
-#define DETECT_LONGQ_PER_BUFFER_SIZE 8000
+#define DETECT_COMMAND_NUM 8 /* detectiong command count */
+#define DETECT_LONGQ_BASE 4000 /* basic detect condition */
+#define DETECT_LONGQ_SAVE_SIZE 20 /* save line size (key count) */
+#define DETECT_LONGQ_PER_BUFFER_SIZE 8000 /* 8 * KB */
 #define DETECT_LONGQ_BUFFER_SIZE 65000 /* 65 * KB */
 #define DETECT_INPUT_SIZE 300 /* the size of input(time, ip, command, bool) */
 struct detect_longq_buffer
