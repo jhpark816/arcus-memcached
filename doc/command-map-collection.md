@@ -3,15 +3,15 @@ MAP 명령
 
 Map collection에 관한 명령은 아래와 같다.
 
-- [Map collection 생성: mop create](https://github.com/MinWooJin/arcus-memcached/blob/master/doc/command-map-collection.md#mop-create---map-collection-생성)
+- [Map collection 생성: mop create](command-map-collection.md#mop-create---map-collection-생성)
 - Map collection 삭제: delete (기존 key-value item의 삭제 명령을 그대로 사용)
 
 Map element에 관한 명령은 아래와 같다. 
 
-- [Map element 삽입: mop insert](https://github.com/MinWooJin/arcus-memcached/blob/master/doc/command-map-collection.md#mop-insert---map-element-삽입)
-- [Map element 삭제: mop delete](command-set-collection.md#sop-delete---set-element-%EC%82%AD%EC%A0%9C)
-- [Map element 조회: mop get](command-set-collection.md#sop-get---set-element-%EC%A1%B0%ED%9A%8C)
-- [Map element 다중조회: mop mget](command-set-collection.md#sop-get---set-element-%EC%A1%B0%ED%9A%8C)
+- [Map element 삽입: mop insert](command-map-collection.md#mop-insert---map-element-삽입)
+- [Map element 삭제: mop delete](command-map-collection.md#mop-delete---map-element-삭제)
+- [Map element 조회: mop get](command-map-collection.md#mop-get---map-element-조회)
+- [Map element 다중조회: mop mget](command-map-collection.md#mop-mget---map-element-다중-조회)
 
 ### mop create - Map Collection 생성
 
@@ -127,7 +127,7 @@ END|DELETED|DELETED_DROPPED\r\n
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
 - "SERVER_ERROR out of memory [writing get response]”	- 메모리 부족
 
-### mop mget - Map Element 다중 검사
+### mop mget - Map Element 다중 조회
 
 Set collection에 특정 element의 존재 유무를 검사한다.
 
