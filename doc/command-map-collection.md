@@ -3,7 +3,7 @@ MAP 명령
 
 Map collection에 관한 명령은 아래와 같다.
 
-- [Map collection 생성: mop create](https://github.com/MinWooJin/arcus-memcached/blob/master/doc/command-map-collection.md)
+- [Map collection 생성: mop create](command-set-collection.md#sop-create---set-collection-%EC%83%9D%EC%84%B1)
 - Map collection 삭제: delete (기존 key-value item의 삭제 명령을 그대로 사용)
 
 Map element에 관한 명령은 아래와 같다. 
