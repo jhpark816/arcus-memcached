@@ -131,7 +131,7 @@ END|DELETED|DELETED_DROPPED\r\n
 Map collection에서 N 개의 key와 각 key에 대해 M 개의 elements를 조회한다.
 
 ```
-mop mget key_count <key_1> <count_1> ㆍㆍㆍ <key_n> <count_n>[delete|drop]\r\n
+mop mget key_count <key_1> <count_1> ㆍㆍㆍ <key_n> <count_n> [delete|drop]\r\n
 ```
 
 - key_count - 한번에 조회 할 key 개수
