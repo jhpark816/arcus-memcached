@@ -162,6 +162,12 @@ enum bin_substates {
     bin_reading_sop_prepare_nread,
     bin_reading_sop_nread_complete,
     bin_reading_sop_get,
+#ifdef MAP_COLLECTION_SUPPORT
+    bin_reading_mop_create,
+    bin_reading_mop_prepare_nread,
+    bin_reading_mop_nread_complete,
+    bin_reading_mop_get,
+#endif
     bin_reading_bop_create,
     bin_reading_bop_prepare_nread,
     bin_reading_bop_nread_complete,

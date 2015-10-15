@@ -76,11 +76,11 @@ extern int genhash_string_hash(const void* p, size_t nkey);
 /* item type checking */
 #define IS_LIST_ITEM(it)  (((it)->iflag & ITEM_IFLAG_LIST) != 0)
 #define IS_SET_ITEM(it)   (((it)->iflag & ITEM_IFLAG_SET) != 0)
-#define IS_BTREE_ITEM(it) (((it)->iflag & ITEM_IFLAG_BTREE) != 0)
-#define IS_COLL_ITEM(it)  (((it)->iflag & ITEM_IFLAG_COLL) != 0)
 #ifdef MAP_COLLECTION_SUPPORT
 #define IS_MAP_ITEM(it)   (((it)->iflag & ITEM_IFLAG_MAP) != 0)
 #endif
+#define IS_BTREE_ITEM(it) (((it)->iflag & ITEM_IFLAG_BTREE) != 0)
+#define IS_COLL_ITEM(it)  (((it)->iflag & ITEM_IFLAG_COLL) != 0)
 
 /* btree item status */
 #define BTREE_ITEM_STATUS_USED   2
@@ -202,6 +202,9 @@ static inline size_t ITEM_ntotal(struct default_engine *engine, const hash_item 
         ret = sizeof(*item) + META_OFFSET_IN_ITEM(item->nkey, item->nbytes);
         if (IS_LIST_ITEM(item))     ret += sizeof(list_meta_info);
         else if (IS_SET_ITEM(item)) ret += sizeof(set_meta_info);
+#ifdef MAP_COLLECTION_SUPPORT
+        else if (IS_MAP_ITEM(item)) ret += sizeof(map_meta_info);
+#endif
         else /* BTREE_ITEM */       ret += sizeof(btree_meta_info);
     } else {
         ret = sizeof(*item) + item->nkey + item->nbytes;
@@ -2457,9 +2460,11 @@ static ENGINE_ERROR_CODE do_map_elem_link(struct default_engine *engine,
                         find->hval, find->value, find->nbytes))
             break;
     }
+
+    /* map collection support duplication
     if (find != NULL) {
         return ENGINE_ELEM_EEXISTS;
-    }
+    } */
 
     if (node->hcnt[hidx] >= MAP_MAX_HASHCHAIN_SIZE) {
         map_hash_node *n_node = do_map_node_alloc(engine, node->hdepth+1, cookie);
@@ -2675,7 +2680,7 @@ static ENGINE_ERROR_CODE do_map_elem_insert(struct default_engine *engine,
 
     /* create the root hash node if it does not exist */
     bool new_root_flag = false;
-    if (info->root == NULL) { /* empty set */
+    if (info->root == NULL) { /* empty map */
         map_hash_node *r_node = do_map_node_alloc(engine, 0, cookie);
         if (r_node == NULL) {
             return ENGINE_ENOMEM;

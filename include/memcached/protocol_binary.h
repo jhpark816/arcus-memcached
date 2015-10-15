@@ -198,6 +198,17 @@ extern "C"
         PROTOCOL_BINARY_CMD_SOP_DELETEQ = 0x66,
         /* End SET */
 
+#ifdef MAP_COLLECTION_SUPPORT
+        /* MAP commands */
+        PROTOCOL_BINARY_CMD_MOP_CREATE  = 0x80,
+        PROTOCOL_BINARY_CMD_MOP_INSERT  = 0x81,
+        PROTOCOL_BINARY_CMD_MOP_DELETE  = 0x82,
+        PROTOCOL_BINARY_CMD_MOP_GET     = 0x83,
+        PROTOCOL_BINARY_CMD_MOP_INSERTQ = 0x84,
+        PROTOCOL_BINARY_CMD_MOP_DELETEQ = 0x85,
+        /* End MAP */
+#endif
+
         /* B+Tree commands */
         PROTOCOL_BINARY_CMD_BOP_CREATE  = 0x70,
         PROTOCOL_BINARY_CMD_BOP_INSERT  = 0x71,
@@ -692,6 +703,86 @@ extern "C"
         } message;
         uint8_t bytes[sizeof(protocol_binary_response_header) + 4];
     } protocol_binary_response_sop_exist;
+
+#ifdef MAP_COLLECTION_SUPPORT
+    /**
+     * Definition of the structure used by mop insert/delete/get command.
+     * See section 4
+     */
+    typedef union {
+        struct {
+            protocol_binary_request_header header;
+            struct {
+                uint32_t flags;
+                int32_t  exptime;
+                int32_t  maxcount;
+                uint8_t  ovflaction;
+                uint8_t  readable;
+                uint8_t  reserved1;
+                uint8_t  reserved2;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_request_header) + 16];
+    } protocol_binary_request_mop_create;
+
+    typedef union {
+        struct {
+            protocol_binary_request_header header;
+            struct {
+                uint32_t flags;
+                int32_t  exptime;
+                int32_t  maxcount;
+                uint8_t  create;
+                uint8_t  reserved1;
+                uint8_t  reserved2;
+                uint8_t  reserved3;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_request_header) + 16];
+    } protocol_binary_request_mop_insert;
+
+    typedef union {
+        struct {
+            protocol_binary_request_header header;
+            struct {
+                uint8_t  drop;
+                uint8_t  reserved1;
+                uint8_t  reserved2;
+                uint8_t  reserved3;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
+    } protocol_binary_request_mop_delete;
+
+    typedef union {
+        struct {
+            protocol_binary_request_header header;
+            struct {
+                uint32_t count;
+                uint8_t delete;
+                uint8_t drop;
+                uint8_t reserved2;
+                uint8_t reserved3;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_request_header) + 8];
+    } protocol_binary_request_mop_get;
+
+    typedef protocol_binary_response_no_extras protocol_binary_response_mop_create;
+    typedef protocol_binary_response_no_extras protocol_binary_response_mop_insert;
+    typedef protocol_binary_response_no_extras protocol_binary_response_mop_delete;
+
+    typedef union {
+        struct {
+            protocol_binary_response_header header;
+            struct {
+                uint32_t flags;
+                uint32_t count;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_response_header) + 8];
+    } protocol_binary_response_mop_get;
+#endif
 
     /**
      * Definition of the structure used by b+tree insert/delete/get command.

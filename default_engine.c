@@ -125,6 +125,11 @@ static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se, cons
             { .key = "max_set_size",
               .datatype = DT_SIZE,
               .value.dt_size = &se->config.max_set_size },
+#ifdef MAP_COLLECTION_SUPPORT
+            { .key = "max_map_size",
+              .datatype = DT_SIZE,
+              .value.dt_size = &se->config.max_map_size },
+#endif
             { .key = "max_btree_size",
               .datatype = DT_SIZE,
               .value.dt_size = &se->config.max_btree_size },

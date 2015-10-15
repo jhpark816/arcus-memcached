@@ -708,6 +708,12 @@ char *stats_prefix_dump(int *length) {
                            pfs->num_sop_deletes, pfs->num_sop_delete_hits,
                            pfs->num_sop_gets, pfs->num_sop_get_hits,
                            pfs->num_sop_exists, pfs->num_sop_exist_hits,
+#ifdef MAP_COLLECTION_SUPPORT
+                           pfs->num_mop_creates,
+                           pfs->num_mop_inserts, pfs->num_mop_insert_hits,
+                           pfs->num_mop_deletes, pfs->num_mop_delete_hits,
+                           pfs->num_mop_gets, pfs->num_mop_get_hits,
+#endif
                            pfs->num_bop_creates,
                            pfs->num_bop_inserts, pfs->num_bop_insert_hits,
                            pfs->num_bop_updates, pfs->num_bop_update_hits,

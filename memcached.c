@@ -1256,6 +1256,9 @@ static inline char *get_item_type_str(uint8_t type) {
     if (type == ITEM_TYPE_KV)          return "kv";
     else if (type == ITEM_TYPE_LIST)   return "list";
     else if (type == ITEM_TYPE_SET)    return "set";
+#ifdef MAP_COLLECTION_SUPPORT
+    else if (type == ITEM_TYPE_MAP)    return "map";
+#endif
     else if (type == ITEM_TYPE_BTREE)  return "b+tree";
     else                               return "unknown";
 }
@@ -1532,7 +1535,6 @@ static void process_mop_insert_complete(conn *c) {
             STATS_NOKEY(c, cmd_mop_insert);
             if (ret == ENGINE_EBADTYPE) out_string(c, "TYPE_MISMATCH");
             else if (ret == ENGINE_EOVERFLOW) out_string(c, "OVERFLOWED");
-            else if (ret == ENGINE_ELEM_EEXISTS) out_string(c, "ELEMENT_EXISTS");
             else if (ret == ENGINE_PREFIX_ENAME) out_string(c, "CLIENT_ERROR invalid prefix name");
             else if (ret == ENGINE_ENOMEM) out_string(c, "SERVER_ERROR out of memory");
             else handle_unexpected_errorcode_ascii(c, ret);
@@ -4312,6 +4314,433 @@ static void process_bin_sop_get(conn *c) {
     }
 }
 
+#ifdef MAP_COLLECTION_SUPPORT
+static void process_bin_mop_create(conn *c) {
+    assert(c != NULL);
+    assert(c->ewouldblock == false);
+    char *key = binary_get_key(c);
+    int  nkey = c->binary_header.request.keylen;
+
+    /* fix byteorder in the request */
+    protocol_binary_request_mop_create* req = binary_get_request(c);
+    req->message.body.exptime  = ntohl(req->message.body.exptime);
+    req->message.body.maxcount = ntohl(req->message.body.maxcount);
+
+    if (settings.verbose > 1) {
+        fprintf(stderr, "<%d MOP CREATE ", c->sfd);
+        for (int ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
+        fprintf(stderr, " flags(%u) exptime(%d) maxcount(%d) ovflaction(%s) readable(%d)\n",
+                req->message.body.flags, req->message.body.exptime, req->message.body.maxcount,
+                "error", req->message.body.readable);
+    }
+
+    item_attr attr_data;
+    attr_data.flags = req->message.body.flags;
+    attr_data.exptime = realtime(req->message.body.exptime);
+    attr_data.maxcount = req->message.body.maxcount;
+    attr_data.readable = req->message.body.readable;
+
+    ENGINE_ERROR_CODE ret;
+    ret = mc_engine.v1->map_struct_create(mc_engine.v0, c, key, nkey, &attr_data,
+                                          c->binary_header.request.vbucket);
+    if (ret == ENGINE_EWOULDBLOCK) {
+        c->ewouldblock = true;
+        ret = ENGINE_SUCCESS;
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_mop_create(key, nkey);
+    }
+
+    switch (ret) {
+    case ENGINE_SUCCESS:
+        STATS_OKS(c, mop_create, key, nkey);
+        write_bin_response(c, NULL, 0, 0, 0);
+        break;
+    case ENGINE_DISCONNECT:
+        c->state = conn_closing;
+        break;
+    default:
+        STATS_NOKEY(c, cmd_mop_create);
+        if (ret == ENGINE_KEY_EEXISTS)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
+        else if (ret == ENGINE_PREFIX_ENAME)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_PREFIX_ENAME, 0);
+        else if (ret == ENGINE_ENOMEM)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+        else
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EINTERNAL, 0);
+    }
+}
+
+static void process_bin_mop_prepare_nread(conn *c) {
+    assert(c != NULL);
+    assert(c->cmd == PROTOCOL_BINARY_CMD_MOP_INSERT ||
+           c->cmd == PROTOCOL_BINARY_CMD_MOP_DELETE);
+    char *key = binary_get_key(c);
+    uint32_t nkey = c->binary_header.request.keylen;
+    uint32_t vlen = 0;
+
+    if (nkey + c->binary_header.request.extlen <= c->binary_header.request.bodylen) {
+        vlen = c->binary_header.request.bodylen - (nkey + c->binary_header.request.extlen);
+    } else {
+        handle_binary_protocol_error(c);
+        return;
+    }
+
+    if (settings.verbose > 1) {
+        if (c->cmd == PROTOCOL_BINARY_CMD_MOP_INSERT) {
+            fprintf(stderr, "<%d MOP INSERT ", c->sfd);
+        } else if (c->cmd == PROTOCOL_BINARY_CMD_MOP_DELETE) {
+            fprintf(stderr, "<%d MOP DELETE ", c->sfd);
+        }
+        for (int ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
+        fprintf(stderr, " NBytes(%d)", vlen);
+        fprintf(stderr, "\n");
+    }
+
+    eitem *elem = NULL;
+
+    ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
+    if ((vlen + 2) > MAX_ELEMENT_BYTES) {
+        ret = ENGINE_E2BIG;
+    } else {
+        if (c->cmd == PROTOCOL_BINARY_CMD_MOP_INSERT) {
+            ret = mc_engine.v1->map_elem_alloc(mc_engine.v0, c, key, nkey, vlen+2, &elem);
+        } else { /* PROTOCOL_BINARY_CMD_SOP_DELETE */
+            if ((elem = (eitem *)malloc(sizeof(elem_value) + vlen + 2)) == NULL)
+                ret = ENGINE_ENOMEM;
+            else
+                ((elem_value*)elem)->nbytes = vlen + 2;
+        }
+    }
+
+    if (settings.detail_enabled && ret != ENGINE_SUCCESS) {
+        if (c->cmd == PROTOCOL_BINARY_CMD_MOP_INSERT)
+            stats_prefix_record_mop_insert(key, nkey, false);
+        else if (c->cmd == PROTOCOL_BINARY_CMD_MOP_DELETE)
+            stats_prefix_record_mop_delete(key, nkey, false);
+    }
+
+    switch (ret) {
+    case ENGINE_SUCCESS:
+        if (c->cmd == PROTOCOL_BINARY_CMD_MOP_INSERT) {
+            eitem_info info;
+            mc_engine.v1->get_map_elem_info(mc_engine.v0, c, elem, &info);
+            c->ritem   = (char *)info.value;
+            c->rlbytes = vlen;
+         } else {
+            c->ritem   = ((elem_value *)elem)->value;
+            c->rlbytes = vlen;
+         }
+        c->coll_eitem  = (void *)elem;
+        c->coll_ecount = 1;
+        c->coll_key    = key;
+        c->coll_nkey   = nkey;
+        if (c->cmd == PROTOCOL_BINARY_CMD_MOP_INSERT) {
+            protocol_binary_request_mop_insert* req = binary_get_request(c);
+            if (req->message.body.create) {
+                req->message.body.exptime  = ntohl(req->message.body.exptime);
+                req->message.body.maxcount = ntohl(req->message.body.maxcount);
+            }
+            c->coll_op     = OPERATION_MOP_INSERT;
+            if (req->message.body.create) {
+                c->coll_attrp = &c->coll_attr_space; /* create if not exist */
+                c->coll_attrp->flags    = req->message.body.flags;
+                c->coll_attrp->exptime  = realtime(req->message.body.exptime);
+                c->coll_attrp->maxcount = req->message.body.maxcount;
+                c->coll_attrp->readable = 1;
+            } else {
+                c->coll_attrp = NULL;
+            }
+        } else if (c->cmd == PROTOCOL_BINARY_CMD_MOP_DELETE) {
+            protocol_binary_request_mop_delete* req = binary_get_request(c);
+            c->coll_op     = OPERATION_MOP_DELETE;
+            c->coll_drop   = (req->message.body.drop ? true : false);
+        }
+        conn_set_state(c, conn_nread);
+        c->substate = bin_reading_mop_nread_complete;
+        break;
+    case ENGINE_DISCONNECT:
+        c->state = conn_closing;
+        break;
+    default:
+        if (c->cmd == PROTOCOL_BINARY_CMD_MOP_INSERT) {
+            STATS_NOKEY(c, cmd_mop_insert);
+        } else if (c->cmd == PROTOCOL_BINARY_CMD_MOP_DELETE) {
+            STATS_NOKEY(c, cmd_mop_delete);
+        }
+
+        if (ret == ENGINE_E2BIG)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_E2BIG, vlen);
+        else if (ret == ENGINE_ENOMEM)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
+        else
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EINTERNAL, 0);
+
+        /* swallow the data line */
+        c->write_and_go = conn_swallow;
+    }
+}
+
+static void process_bin_mop_insert_complete(conn *c) {
+    assert(c->coll_eitem != NULL);
+    eitem *elem = c->coll_eitem;
+
+    /* We don't actually receive the trailing two characters in the bin
+     * protocol, so we're going to just set them here */
+    eitem_info info;
+    mc_engine.v1->get_map_elem_info(mc_engine.v0, c, elem, &info);
+    memcpy((char*)info.value + info.nbytes - 2, "\r\n", 2);
+
+    bool created;
+
+    ENGINE_ERROR_CODE ret;
+    ret = mc_engine.v1->map_elem_insert(mc_engine.v0, c,
+                                  c->coll_key, c->coll_nkey, elem,
+                                  c->coll_attrp, &created,
+                                  c->binary_header.request.vbucket);
+    if (ret == ENGINE_EWOULDBLOCK) {
+        c->ewouldblock = true;
+        ret = ENGINE_SUCCESS;
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_mop_insert(c->coll_key, c->coll_nkey, (ret==ENGINE_SUCCESS));
+    }
+
+    switch (ret) {
+    case ENGINE_SUCCESS:
+        STATS_HITS(c, mop_insert, c->coll_key, c->coll_nkey);
+        /* Stored */
+        write_bin_response(c, NULL, 0, 0, 0);
+        break;
+    case ENGINE_DISCONNECT:
+        c->state = conn_closing;
+        break;
+    case ENGINE_KEY_ENOENT:
+        STATS_MISS(c, mop_insert, c->coll_key, c->coll_nkey);
+        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        break;
+    default:
+        STATS_NOKEY(c, cmd_mop_insert);
+        if (ret == ENGINE_EBADTYPE)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EBADTYPE, 0);
+        else if (ret == ENGINE_EOVERFLOW)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EOVERFLOW, 0);
+        else if (ret == ENGINE_PREFIX_ENAME)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_PREFIX_ENAME, 0);
+        else if (ret == ENGINE_ENOMEM)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+        else
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EINTERNAL, 0);
+    }
+
+    /* release the c->coll_eitem reference */
+    mc_engine.v1->map_elem_release(mc_engine.v0, c, &c->coll_eitem, 1);
+    c->coll_eitem = NULL;
+}
+
+static void process_bin_mop_delete_complete(conn *c) {
+    assert(c->coll_eitem != NULL);
+
+    /* We don't actually receive the trailing two characters in the bin
+     * protocol, so we're going to just set them here */
+    elem_value *elem = (elem_value *)c->coll_eitem;
+    memcpy(elem->value + elem->nbytes - 2, "\r\n", 2);
+
+    bool dropped;
+
+    ENGINE_ERROR_CODE ret;
+    ret = mc_engine.v1->map_elem_delete(mc_engine.v0, c,
+                                        c->coll_key, c->coll_nkey,
+                                        elem->value, elem->nbytes,
+                                        c->coll_drop, &dropped,
+                                        c->binary_header.request.vbucket);
+    if (ret == ENGINE_EWOULDBLOCK) {
+        c->ewouldblock = true;
+        ret = ENGINE_SUCCESS;
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_mop_delete(c->coll_key, c->coll_nkey,
+                                       (ret==ENGINE_SUCCESS || ret==ENGINE_ELEM_ENOENT));
+    }
+
+    switch (ret) {
+    case ENGINE_SUCCESS:
+        STATS_ELEM_HITS(c, mop_delete, c->coll_key, c->coll_nkey);
+        write_bin_response(c, NULL, 0, 0, 0);
+        break;
+    case ENGINE_ELEM_ENOENT:
+        STATS_NONE_HITS(c, mop_delete, c->coll_key, c->coll_nkey);
+        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ELEM_ENOENT, 0);
+        break;
+    case ENGINE_DISCONNECT:
+        c->state = conn_closing;
+        break;
+    case ENGINE_KEY_ENOENT:
+        STATS_MISS(c, mop_delete, c->coll_key, c->coll_nkey);
+        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        break;
+    default:
+        STATS_NOKEY(c, cmd_mop_delete);
+        if (ret == ENGINE_EBADTYPE)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EBADTYPE, 0);
+        else
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EINTERNAL, 0);
+    }
+
+    /* release the c->coll_eitem reference */
+    free(c->coll_eitem);
+    c->coll_eitem = NULL;
+}
+
+static void process_bin_mop_nread_complete(conn *c) {
+    //protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
+    assert(c != NULL);
+
+    if (c->cmd == PROTOCOL_BINARY_CMD_MOP_INSERT)
+        process_bin_mop_insert_complete(c);
+    else if (c->cmd == PROTOCOL_BINARY_CMD_MOP_DELETE)
+        process_bin_mop_delete_complete(c);
+}
+
+static void process_bin_mop_get(conn *c) {
+    assert(c != NULL);
+    assert(c->ewouldblock == false);
+    assert(c->cmd == PROTOCOL_BINARY_CMD_MOP_GET);
+    char *key = binary_get_key(c);
+    int  nkey = c->binary_header.request.keylen;
+
+    /* fix byteorder in the request */
+    protocol_binary_request_mop_get* req = binary_get_request(c);
+    uint32_t req_count = ntohl(req->message.body.count);
+
+    if (settings.verbose > 1) {
+        fprintf(stderr, "<%d MOP GET ", c->sfd);
+        for (int ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
+        fprintf(stderr, " Count(%d) Delete(%s)\n", req_count,
+                (req->message.body.delete ? "true" : "false"));
+    }
+
+    eitem  **elem_array = NULL;
+    uint32_t elem_count;
+    uint32_t flags, i;
+    bool     dropped;
+    int      need_size;
+
+    ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
+
+    if (req_count <= 0 || req_count > MAX_MAP_SIZE) req_count = MAX_MAP_SIZE;
+    need_size = req_count * (sizeof(eitem*)+sizeof(uint32_t));
+    if ((elem_array = (eitem **)malloc(need_size)) == NULL) {
+        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+        return;
+    }
+
+    ret = mc_engine.v1->map_elem_get(mc_engine.v0, c, key, nkey, req_count,
+                                     (bool)req->message.body.delete,
+                                     (bool)req->message.body.drop,
+                                     elem_array, &elem_count, &flags, &dropped,
+                                     c->binary_header.request.vbucket);
+    if (ret == ENGINE_EWOULDBLOCK) {
+        c->ewouldblock = true;
+        ret = ENGINE_SUCCESS;
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_mop_get(key, nkey,
+                                    (ret==ENGINE_SUCCESS || ret==ENGINE_ELEM_ENOENT));
+    }
+
+    switch (ret) {
+    case ENGINE_SUCCESS:
+        {
+        protocol_binary_response_mop_get* rsp = (protocol_binary_response_mop_get*)c->wbuf;
+        uint32_t *vlenptr = (uint32_t *)&elem_array[elem_count];
+        uint32_t  bodylen;
+
+        eitem_info info[elem_count];
+        for (i = 0; i < elem_count; i++) {
+            mc_engine.v1->get_map_elem_info(mc_engine.v0, c, elem_array[i], &info[i]);
+        }
+
+        bodylen = sizeof(rsp->message.body) + (elem_count * sizeof(uint32_t));
+        for (i = 0; i < elem_count; i++) {
+             bodylen += (info[i].nbytes - 2);
+        }
+        add_bin_header(c, 0, sizeof(rsp->message.body), 0, bodylen);
+
+        // add the flags and count
+        rsp->message.body.flags = flags;
+        rsp->message.body.count = htonl(elem_count);
+        add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
+
+        // add value lengths
+        for (i = 0; i < elem_count; i++) {
+             vlenptr[i] = htonl(info[i].nbytes - 2);
+        }
+        add_iov(c, (char*)vlenptr, elem_count*sizeof(uint32_t));
+
+        /* Add the data without CRLF */
+        for (i = 0; i < elem_count; i++) {
+            if (add_iov(c, info[i].value, info[i].nbytes - 2) != 0) {
+                ret = ENGINE_ENOMEM; break;
+            }
+        }
+
+        if (ret == ENGINE_SUCCESS) {
+            STATS_ELEM_HITS(c, mop_get, key, nkey);
+            /* Remember this command so we can garbage collect it later */
+            c->coll_eitem  = (void *)elem_array;
+            c->coll_ecount = elem_count;
+            c->coll_op     = OPERATION_MOP_GET;
+            conn_set_state(c, conn_mwrite);
+        } else {
+            STATS_NOKEY(c, cmd_mop_get);
+            mc_engine.v1->map_elem_release(mc_engine.v0, c, elem_array, elem_count);
+            if (c->ewouldblock)
+                c->ewouldblock = false;
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+        }
+        }
+        break;
+    case ENGINE_ELEM_ENOENT:
+        STATS_NONE_HITS(c,mop_get, key, nkey);
+        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ELEM_ENOENT, 0);
+        break;
+    case ENGINE_DISCONNECT:
+        c->state = conn_closing;
+        break;
+    case ENGINE_KEY_ENOENT:
+    case ENGINE_UNREADABLE:
+        STATS_MISS(c, mop_get, key, nkey);
+        if (ret == ENGINE_KEY_ENOENT)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        else
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_UNREADABLE, 0);
+        break;
+    default:
+        STATS_NOKEY(c, cmd_mop_get);
+        if (ret == ENGINE_EBADTYPE)
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EBADTYPE, 0);
+        else
+            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EINTERNAL, 0);
+    }
+
+    if (ret != ENGINE_SUCCESS && elem_array != NULL) {
+        free((void *)elem_array);
+    }
+}
+#endif
+
 static void process_bin_bop_create(conn *c) {
     assert(c != NULL);
     assert(c->ewouldblock == false);
@@ -5451,6 +5880,9 @@ static void process_bin_getattr(conn *c) {
         rsp->message.body.expiretime = htonl(attr_data.exptime);
         rsp->message.body.type       = attr_data.type;
         if (attr_data.type == ITEM_TYPE_LIST || attr_data.type == ITEM_TYPE_SET ||
+#ifdef MAP_COLLECTION_SUPPORT
+            attr_data.type == ITEM_TYPE_MAP ||
+#endif
             attr_data.type == ITEM_TYPE_BTREE) {
             rsp->message.body.count      = htonl(attr_data.count);
             rsp->message.body.maxcount   = htonl(attr_data.maxcount);
@@ -5928,6 +6360,36 @@ static void dispatch_bin_command(conn *c) {
                 protocol_error = 1;
             }
             break;
+#ifdef MAP_COLLECTION_SUPPORT
+        case PROTOCOL_BINARY_CMD_MOP_CREATE:
+            if (keylen > 0 && extlen == 16 && bodylen == (keylen + extlen)) {
+                bin_read_key(c, bin_reading_mop_create, 16);
+            } else {
+                protocol_error = 1;
+            }
+            break;
+        case PROTOCOL_BINARY_CMD_MOP_INSERT:
+            if (keylen > 0 && extlen == 16 && bodylen > (keylen + extlen)) {
+                bin_read_key(c, bin_reading_mop_prepare_nread, 16);
+            } else {
+                protocol_error = 1;
+            }
+            break;
+        case PROTOCOL_BINARY_CMD_MOP_DELETE:
+            if (keylen > 0 && extlen == 4 && bodylen > (keylen + extlen)) {
+                bin_read_key(c, bin_reading_mop_prepare_nread, 4);
+            } else {
+                protocol_error = 1;
+            }
+            break;
+        case PROTOCOL_BINARY_CMD_MOP_GET:
+            if (keylen > 0 && extlen == 8 && bodylen == (keylen + extlen)) {
+                bin_read_key(c, bin_reading_mop_get, 8);
+            } else {
+                protocol_error = 1;
+            }
+            break;
+#endif
         case PROTOCOL_BINARY_CMD_BOP_CREATE:
             if (keylen > 0 && extlen == 16 && bodylen == (keylen + extlen)) {
                 bin_read_key(c, bin_reading_bop_create, 16);
@@ -6414,6 +6876,20 @@ static void complete_nread_binary(conn *c) {
     case bin_reading_sop_get:
         process_bin_sop_get(c);
         break;
+#ifdef MAP_COLLECTION_SUPPORT
+    case bin_reading_mop_create:
+        process_bin_mop_create(c);
+        break;
+    case bin_reading_mop_prepare_nread:
+        process_bin_mop_prepare_nread(c);
+        break;
+    case bin_reading_mop_nread_complete:
+        process_bin_mop_nread_complete(c);
+        break;
+    case bin_reading_mop_get:
+        process_bin_mop_get(c);
+        break;
+#endif
     case bin_reading_bop_create:
         process_bin_bop_create(c);
         break;
@@ -9332,13 +9808,10 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         if (ntokens == column_count*2+5) {
             if (strcmp(tokens[MOP_KEY_TOKEN+(column_count*2)+1].value, "delete")==0) {
                 delete = true;
-            }
-/*now drop not support
-            else if (strcmp(tokens[MOP_KEY_TOKEN+(column_count*2)+1].value, "drop")==0) {
+            } else if (strcmp(tokens[MOP_KEY_TOKEN+(column_count*2)+1].value, "drop")==0) {
                 delete = true;
                 drop_if_empty = true;
-            } */
-            else {
+            } else {
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
             }
@@ -11005,6 +11478,9 @@ static void process_getattr_command(conn *c, token_t *tokens, const size_t ntoke
             sprintf(ptr, "ATTR expiretime=%d\r\n", (int32_t)attr_data.exptime);
             ptr += strlen(ptr);
             if (attr_data.type == ITEM_TYPE_LIST || attr_data.type == ITEM_TYPE_SET ||
+#ifdef MAP_COLLECTION_SUPPORT
+                attr_data.type == ITEM_TYPE_MAP ||
+#endif
                 attr_data.type == ITEM_TYPE_BTREE) {
                 sprintf(ptr, "ATTR count=%d\r\n", attr_data.count);
                 ptr += strlen(ptr);
@@ -13632,6 +14108,19 @@ int main (int argc, char **argv) {
                          value, MAX_SET_SIZE, ARCUS_COLL_SIZE_LIMIT);
             }
         }
+#ifdef MAP_COLLECTION_SUPPORT
+        char *arcus_max_map_size = getenv("ARCUS_MAX_MAP_SIZE");
+        if (arcus_max_set_size != NULL) {
+            value = atoi(arcus_max_map_size);
+            if (value > MAX_MAP_SIZE && value <= ARCUS_COLL_SIZE_LIMIT)
+                MAX_MAP_SIZE = value;
+            else {
+                mc_logger->log(EXTENSION_LOG_INFO, NULL,
+                        "ARCUS_MAX_MAP_SIZE incorrect value: %d, (Allowable values: %d ~ %d)\n",
+                         value, MAX_MAP_SIZE, ARCUS_COLL_SIZE_LIMIT);
+            }
+        }
+#endif
         char *arcus_max_btree_size = getenv("ARCUS_MAX_BTREE_SIZE");
         if (arcus_max_btree_size != NULL) {
             value = atoi(arcus_max_btree_size);
@@ -13645,6 +14134,9 @@ int main (int argc, char **argv) {
         }
         old_opts += sprintf(old_opts, "max_list_size=%d;",  MAX_LIST_SIZE);
         old_opts += sprintf(old_opts, "max_set_size=%d;",   MAX_SET_SIZE);
+#ifdef MAP_COLLECTION_SUPPORT
+        old_opts += sprintf(old_opts, "max_map_size=%d;",   MAX_MAP_SIZE);
+#endif
         old_opts += sprintf(old_opts, "max_btree_size=%d;", MAX_BTREE_SIZE);
     }
 
