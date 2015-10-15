@@ -128,26 +128,47 @@ END|DELETED|DELETED_DROPPED\r\n
 
 ### mop mget - Map Element 다중 조회
 
-Set collection에 특정 element의 존재 유무를 검사한다.
+Map collection에서 N 개의 key와 각 key에 대해 M 개의 elements를 조회한다.
 
 ```
-sop exist <key> <bytes> [pipe]\r\n<data>\r\n
+mop mget key_count <key_1> <count_1> ㆍㆍㆍ <key_n> <count_n>[delete|drop]\r\n
 ```
 
+- key_count - 한번에 조회 할 key 개수
 - \<key\> - 대상 item의 key string
-- \<bytes\>와 \<data\> - 존재 유무를 검사할 데이터의 길의와 데이터 그 자체 (최대 4KB)
-- pipe - 명시하면, response string을 전달받지 않는다. 
-         [Command Pipelining](/doc/command-pipelining.md)을 참조 바란다.
+- \<count\> - 조회할 elements 개수를 지정. 0이면 전체 elements를 의미한다.
+- delete or drop - element 조회하면서 그 element를 delete할 것인지
+                   그리고 delete로 인해 empty map이 될 경우 그 map을 drop할 것인지를 지정한다.
 
-Response string과 그 의미는 아래와 같다.
+성공 시의 response string은 아래와 같다.
+key_count에 따라서 N개의 response string이 출력된다.
+VALUE 라인의 \<count\>는 조회된 element 개수를 의미한다. 
+마지막 라인은 END, DELETED, DELETED_DROPPED 중의 하나를 가지며
+각각 element 조회만 수행한 상태, element 조회하고 삭제한 상태,
+element 조회 및 삭제하고 map을 drop한 상태를 의미한다.
 
-- “EXIST" - 성공 (주어진 데이터가 set에 존재)
-- "NOT_EXIST" - 성공 (주어진 데이타가 set에 존재하지 않음)
+```
+VALUE <flags> <count>\r\n
+<bytes> <data>\r\n
+<bytes> <data>\r\n
+<bytes> <data>\r\n
+...
+END|DELETED|DELETED_DROPPED\r\n
+VALUE <flags> <count>\r\n
+<bytes> <data>\r\n
+<bytes> <data>\r\n
+<bytes> <data>\r\n
+...
+END|DELETED|DELETED_DROPPED\r\n
+```
+
+실패 시의 response string과 그 의미는 아래와 같다.
+
 - “NOT_FOUND”	- key miss
-- “TYPE_MISMATCH”	- 해당 item이 set collection이 아님
+- “NOT_FOUND_ELEMENT”	- element miss (element가 존재하지 않는 상태임)
+- “TYPE_MISMATCH”	- 해당 item이 map collection이 아님
 - “UNREADABLE” - 해당 item이 unreadable item임
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
-- “CLIENT_ERROR too large value” : 주어진 데이타가 4KB 보다 큼
-- “CLIENT_ERROR bad data chunk” : 주어진 데이티의 길이가 \<bytes\>와 다르거나 “\r\n”으로 끝나지 않음
+- "SERVER_ERROR out of memory [writing get response]”	- 메모리 부족
  
 
