@@ -45,7 +45,7 @@ mop insert <key> <bytes> [create <attributes>] [noreply|pipe]\r\n<data>\r\n
 
 - \<key\> - 대상 item의 key string
 - \<bytes\> - 삽입할 데이터 길이 (trailing 문자인 "\r\n"을 제외한 길이)
-- create \<attributes\> - map collection 없을 시에 set 생성 요청.
+- create \<attributes\> - map collection 없을 시에 map 생성 요청.
                     [Item Attribute 설명](/doc/arcus-item-attribute.md)을 참조 바란다.
 - noreply or pipe - 명시하면, response string을 전달받지 않는다. 
                     pipe 사용은 [Command Pipelining](/doc/command-pipelining.md)을 참조 바란다.
@@ -56,9 +56,8 @@ Response string과 그 의미는 아래와 같다.
 - "STROED" - 성공 (element만 삽입)
 - “CREATED_STORED” - 성공 (collection 생성하고 element 삽입)
 - “NOT_FOUND” - key miss
-- “TYPE_MISMATCH” - 해당 item이 set colleciton이 아님
+- “TYPE_MISMATCH” - 해당 item이 map colleciton이 아님
 - “OVERFLOWED” - overflow 발생
-- "ELEMENT_EXISTS" - 동일 데이터를 가진 element가 존재. set uniqueness 위배
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
 - “CLIENT_ERROR too large value” - 삽입할 데이터가 4KB 보다 큼
 - “CLIENT_ERROR bad data chunk” - 삽입할 데이터 길이가 \<bytes\>와 다르거나 "\r\n"으로 끝나지 않음
@@ -66,48 +65,48 @@ Response string과 그 의미는 아래와 같다.
 
 ### mop delete - Map Element 삭제
 
-Set collection에서 하나의 element를 삭제한다.
+Map collection에서 하나의 element를 삭제한다.
 
 ```
-sop delete <key> <bytes> [drop] [noreply|pipe]\r\n<data>\r\n
+mop delete <key> <bytes> [drop] [noreply|pipe]\r\n<data>\r\n
 ```
 
 - \<key\> - 대상 item의 key string
 - \<bytes\> - 삭제할 데이터 길이 (trailing 문자인 "\r\n"을 제외한 길이)
-- drop - element 삭제로 인해 empty set이 될 경우, 그 set을 drop할 것인지를 지정한다.
+- drop - element 삭제로 인해 empty map이 될 경우, 그 map을 drop할 것인지를 지정한다.
 - noreply or pipe - 명시하면, response string을 전달받지 않는다. 
                     pipe 사용은 [Command Pipelining](/doc/command-pipelining.md)을 참조 바란다.
 - \<data\> - 삭제할 데이터 (최대 4KB)
 
 Response string과 그 의미는 아래와 같다.
 
-- "DELETED" - 성공 (element만 삭제)
+- "DELETED" - 성공 (element만 삭제 - 중복 element가 있을 경우 하나만 삭제)
 - “DELETED_DROPPED” - 성공 (element 삭제하고 collection을 drop한 상태)
 - “NOT_FOUND” - key miss
 - “NOT_FOUND_ELEMENT” - element miss (삭제할 element가 없음)
-- “TYPE_MISMATCH” - 해당 item이 set colleciton이 아님
+- “TYPE_MISMATCH” - 해당 item이 map colleciton이 아님
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
 - “CLIENT_ERROR too large value” - 삭제할 데이터가 4KB 보다 큼
 - “CLIENT_ERROR bad data chunk” - 삭제할 데이터의 길이가 \<bytes\>와 다르거나 “\r\n”으로 끝나지 않음
 
 ### mop get - Map Element 조회
 
-Set collection에서 N 개의 elements를 조회한다.
+Map collection에서 N 개의 elements를 조회한다.
 
 ```
-sop get <key> <count> [delete|drop]\r\n
+mop get <key> <count> [delete|drop]\r\n
 ```
 
 - \<key\> - 대상 item의 key string
 - \<count\> - 조회할 elements 개수를 지정. 0이면 전체 elements를 의미한다.
 - delete or drop - element 조회하면서 그 element를 delete할 것인지
-                   그리고 delete로 인해 empty set이 될 경우 그 set을 drop할 것인지를 지정한다.
+                   그리고 delete로 인해 empty map이 될 경우 그 map을 drop할 것인지를 지정한다.
 
 성공 시의 response string은 아래와 같다.
 VALUE 라인의 \<count\>는 조회된 element 개수를 의미한다. 
 마지막 라인은 END, DELETED, DELETED_DROPPED 중의 하나를 가지며
 각각 element 조회만 수행한 상태, element 조회하고 삭제한 상태,
-element 조회 및 삭제하고 set을 drop한 상태를 의미한다.
+element 조회 및 삭제하고 map을 drop한 상태를 의미한다.
 
 ```
 VALUE <flags> <count>\r\n
@@ -122,7 +121,7 @@ END|DELETED|DELETED_DROPPED\r\n
 
 - “NOT_FOUND”	- key miss
 - “NOT_FOUND_ELEMENT”	- element miss (element가 존재하지 않는 상태임)
-- “TYPE_MISMATCH”	- 해당 item이 set collection이 아님
+- “TYPE_MISMATCH”	- 해당 item이 map collection이 아님
 - “UNREADABLE” - 해당 item이 unreadable item임
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
 - "SERVER_ERROR out of memory [writing get response]”	- 메모리 부족
