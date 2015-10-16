@@ -7979,27 +7979,48 @@ static int detlongq_init()
     detlongq.on_checking = false;
     detlongq.returnstr = NULL;
 
+    detlongq.buffer = malloc(sizeof(struct detect_longq_buffer) * DETECT_COMMAND_NUM);
+    if (detlongq.buffer == NULL) {
+        return -1;
+    }
+
+    detlongq.key = malloc(sizeof(struct detect_longq_key) * DETECT_COMMAND_NUM);
+    if (detlongq.key == NULL) {
+        return -1;
+    }
+
     for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
-        detlongq.buffer[ii].data = malloc(DETECT_LONGQ_PER_BUFFER_SIZE);
-        if (detlongq.buffer[ii].data == NULL) {
-            for(jj = 0; jj < ii; jj++) {
-                free(detlongq.buffer[jj].data);
-            }
+        detlongq.buffer[ii].data = malloc(sizeof(char*) * DETECT_LONGQ_PER_BUFFER_SIZE);
+        detlongq.key[ii].data = malloc(sizeof(char*) * DETECT_LONGQ_SAVE_SIZE);
+        if (detlongq.buffer[ii].data == NULL || detlongq.key[ii].data == NULL) {
             return -1;
         }
+
+        for(jj = 0; jj < DETECT_LONGQ_SAVE_SIZE; jj++) {
+            detlongq.key[ii].data[jj] = malloc(sizeof(char*) * DETECT_INPUT_SIZE);
+            if (detlongq.key[ii].data[jj] == NULL) {
+                return -1;
+            }
+        }
     }
+
     return 0;
 }
 
 static void detlongq_final()
 {
-    int ii;
+    int ii, jj;
 
     pthread_mutex_destroy(&detlongq.lock);
-
     for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
-         free(detlongq.buffer[ii].data);
+        for(jj = 0; jj < DETECT_LONGQ_SAVE_SIZE; jj++) {
+            free(detlongq.key[ii].data[jj]);
+        }
+        free(detlongq.buffer[ii].data);
+        free(detlongq.key[ii].data);
     }
+    free(detlongq.buffer);
+    free(detlongq.key);
 }
 
 static int detlongq_start()
@@ -8010,7 +8031,7 @@ static int detlongq_start()
     if (detlongq.on_detecting == false) {
         for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
             for(jj = 0; jj < DETECT_LONGQ_SAVE_SIZE; jj++) {
-                memset(&detlongq.key[ii].data[jj], 0, DETECT_INPUT_SIZE);
+                detlongq.key[ii].data[jj][0] = '\0';
             }
             detlongq.buffer[ii].data[0] = '\0';
             detlongq.buffer[ii].offset = 0;
@@ -8046,14 +8067,16 @@ static int detlongq_stop()
 static bool detlongq_keycheck(char *key, int cmdnum)
 {
     int ii;
+    int count = detlongq.key[cmdnum].count;
 
-    for(ii = 0; ii < detlongq.key[cmdnum].count; ii++) {
+    for(ii = 0; ii < count; ii++) {
         if (strcmp(detlongq.key[cmdnum].data[ii], key) == 0) {
             return false;
         }
     }
 
-    sprintf(detlongq.key[cmdnum].data[detlongq.key[cmdnum].count], key);
+    snprintf(detlongq.key[cmdnum].data[count], DETECT_INPUT_SIZE, key);
+
     return true;
 }
 
@@ -8151,7 +8174,7 @@ static int process_detlongq(conn *c, char* key, int cmdnum, uint32_t count)
     return ret;
 }
 
-static void process_detlongrq_command(conn *c, token_t *tokens, size_t ntokens)
+static void process_detlongq_command(conn *c, token_t *tokens, size_t ntokens)
 {
     char *type = tokens[COMMAND_TOKEN+1].value;
 
@@ -8174,7 +8197,6 @@ static void process_detlongrq_command(conn *c, token_t *tokens, size_t ntokens)
             out_string(c,
             "\t" "detection long request already start" "\n"
             );
-            detlongq.on_checking = false;
         }
     } else if (ntokens > 2 && strcmp(type, "stop") == 0) {
         if (detlongq_stop() == 0) {
@@ -11067,7 +11089,7 @@ static void process_command(conn *c, char *command)
 #ifdef DETECT_LONG_REQUEST
     else if ((ntokens >= 2) && (strcmp(tokens[COMMAND_TOKEN].value, "detect") == 0))
     {
-        process_detlongrq_command(c, tokens, ntokens);
+        process_detlongq_command(c, tokens, ntokens);
     }
 #endif
     else /* no matching command */

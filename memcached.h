@@ -634,7 +634,7 @@ struct detect_longq_buffer
 
 struct detect_longq_key
 {
-    char data[DETECT_LONGQ_SAVE_SIZE][DETECT_INPUT_SIZE];
+    char **data;
     uint32_t count; /* long request command saved count */
 };
 
@@ -645,8 +645,8 @@ struct detect_longq_global {
     bool on_detecting;
     uint32_t base;
     uint32_t longcount[DETECT_COMMAND_NUM];
-    struct detect_longq_buffer buffer[DETECT_COMMAND_NUM];
-    struct detect_longq_key key[DETECT_COMMAND_NUM];
+    struct detect_longq_buffer *buffer;
+    struct detect_longq_key *key;
 };
 struct detect_longq_global detlongq;
 #endif
