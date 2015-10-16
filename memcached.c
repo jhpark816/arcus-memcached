@@ -7376,6 +7376,12 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     APPEND_STAT("cmd_sop_delete", "%"PRIu64, thread_stats.cmd_sop_delete);
     APPEND_STAT("cmd_sop_get", "%"PRIu64, thread_stats.cmd_sop_get);
     APPEND_STAT("cmd_sop_exist", "%"PRIu64, thread_stats.cmd_sop_exist);
+#ifdef MAP_COLLECTION_SUPPORT
+    APPEND_STAT("cmd_mop_create", "%"PRIu64, thread_stats.cmd_mop_create);
+    APPEND_STAT("cmd_mop_insert", "%"PRIu64, thread_stats.cmd_mop_insert);
+    APPEND_STAT("cmd_mop_delete", "%"PRIu64, thread_stats.cmd_mop_delete);
+    APPEND_STAT("cmd_mop_get", "%"PRIu64, thread_stats.cmd_mop_get);
+#endif
     APPEND_STAT("cmd_bop_create", "%"PRIu64, thread_stats.cmd_bop_create);
     APPEND_STAT("cmd_bop_insert", "%"PRIu64, thread_stats.cmd_bop_insert);
     APPEND_STAT("cmd_bop_update", "%"PRIu64, thread_stats.cmd_bop_update);
@@ -7428,6 +7434,17 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     APPEND_STAT("sop_get_none_hits", "%"PRIu64, thread_stats.sop_get_none_hits);
     APPEND_STAT("sop_exist_misses", "%"PRIu64, thread_stats.sop_exist_misses);
     APPEND_STAT("sop_exist_hits", "%"PRIu64, thread_stats.sop_exist_hits);
+#ifdef MAP_COLLECTION_SUPPORT
+    APPEND_STAT("mop_create_oks", "%"PRIu64, thread_stats.mop_create_oks);
+    APPEND_STAT("mop_insert_misses", "%"PRIu64, thread_stats.mop_insert_misses);
+    APPEND_STAT("mop_insert_hits", "%"PRIu64, thread_stats.mop_insert_hits);
+    APPEND_STAT("mop_delete_misses", "%"PRIu64, thread_stats.mop_delete_misses);
+    APPEND_STAT("mop_delete_elem_hits", "%"PRIu64, thread_stats.mop_delete_elem_hits);
+    APPEND_STAT("mop_delete_none_hits", "%"PRIu64, thread_stats.mop_delete_none_hits);
+    APPEND_STAT("mop_get_misses", "%"PRIu64, thread_stats.mop_get_misses);
+    APPEND_STAT("mop_get_elem_hits", "%"PRIu64, thread_stats.mop_get_elem_hits);
+    APPEND_STAT("mop_get_none_hits", "%"PRIu64, thread_stats.mop_get_none_hits);
+#endif
     APPEND_STAT("bop_create_oks", "%"PRIu64, thread_stats.bop_create_oks);
     APPEND_STAT("bop_insert_misses", "%"PRIu64, thread_stats.bop_insert_misses);
     APPEND_STAT("bop_insert_hits", "%"PRIu64, thread_stats.bop_insert_hits);
