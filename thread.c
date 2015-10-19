@@ -680,7 +680,7 @@ void threadlocal_stats_aggregate(struct thread_stats *thread_stats, struct threa
         stats->cmd_sop_delete += thread_stats[ii].cmd_sop_delete;
         stats->cmd_sop_get += thread_stats[ii].cmd_sop_get;
         stats->cmd_sop_exist += thread_stats[ii].cmd_sop_exist;
-#ifdef 	MAP_COLLECTTION_SUPPORT
+#ifdef MAP_COLLECTION_SUPPROT
         stats->cmd_mop_create += thread_stats[ii].cmd_mop_create;
         stats->cmd_mop_insert += thread_stats[ii].cmd_mop_insert;
         stats->cmd_mop_delete += thread_stats[ii].cmd_mop_delete;
