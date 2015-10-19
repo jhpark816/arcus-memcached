@@ -72,7 +72,6 @@ bool safe_strtoul(const char *str, uint32_t *out) {
     errno = 0;
 
     l = strtoul(str, &endptr, 10);
-
     if (errno == ERANGE) {
         return false;
     }
