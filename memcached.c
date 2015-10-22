@@ -1541,7 +1541,7 @@ static void process_mop_insert_complete(conn *c) {
         }
     }
 
-    mc_engine.v1->set_elem_release(mc_engine.v0, c, &c->coll_eitem, 1);
+    mc_engine.v1->map_elem_release(mc_engine.v0, c, &c->coll_eitem, 1);
     c->coll_eitem = NULL;
 }
 
