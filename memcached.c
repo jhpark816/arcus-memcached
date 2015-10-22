@@ -7939,17 +7939,9 @@ static void detlongq_shorted(char *str, int cmdnum)
     }
 }
 
-static int detlongq_show(conn *c)
+static int detlongq_show(conn *c, char* retstr)
 {
     int ii, len = 0;
-
-    /* allocate detect long request return string buffer */
-    detlongq.returnstr = calloc(DETECT_LONGQ_BUFFER_SIZE , sizeof(char));
-    if (detlongq.returnstr == NULL) {
-        mc_logger->log(EXTENSION_LOG_WARNING, c,
-                           "return string buffer allocate failed\n");
-        return -1;
-    }
 
     /* create detected long request return string*/
     for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
@@ -7957,12 +7949,11 @@ static int detlongq_show(conn *c)
         if (str == NULL) {
             mc_logger->log(EXTENSION_LOG_WARNING, c,
                            "Detlongq return string allocate failed\n");
-            free(detlongq.returnstr);
-            detlongq.returnstr = NULL;
+            free(retstr);
             return -1;
         }
         detlongq_shorted(str, ii);
-        memcpy(detlongq.returnstr + len, str, strlen(str));
+        memcpy(retstr + len, str, strlen(str));
         len += strlen(str);
         free(str);
         str = NULL;
@@ -7977,27 +7968,26 @@ static int detlongq_init()
     pthread_mutex_init(&detlongq.lock, NULL);
     detlongq.on_detecting = false;
     detlongq.on_checking = false;
-    detlongq.returnstr = NULL;
 
-    detlongq.buffer = malloc(sizeof(struct detect_longq_buffer) * DETECT_COMMAND_NUM);
+    detlongq.buffer = malloc(DETECT_COMMAND_NUM * sizeof(struct detect_longq_buffer));
     if (detlongq.buffer == NULL) {
         return -1;
     }
 
-    detlongq.key = malloc(sizeof(struct detect_longq_key) * DETECT_COMMAND_NUM);
+    detlongq.key = malloc(DETECT_COMMAND_NUM * sizeof(struct detect_longq_key));
     if (detlongq.key == NULL) {
         return -1;
     }
 
     for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
-        detlongq.buffer[ii].data = malloc(sizeof(char*) * DETECT_LONGQ_PER_BUFFER_SIZE);
-        detlongq.key[ii].data = malloc(sizeof(char*) * DETECT_LONGQ_SAVE_SIZE);
+        detlongq.buffer[ii].data = malloc(DETECT_LONGQ_PER_BUFFER_SIZE * sizeof(char*));
+        detlongq.key[ii].data = malloc(DETECT_LONGQ_SAVE_SIZE * sizeof(char*));
         if (detlongq.buffer[ii].data == NULL || detlongq.key[ii].data == NULL) {
             return -1;
         }
 
         for(jj = 0; jj < DETECT_LONGQ_SAVE_SIZE; jj++) {
-            detlongq.key[ii].data[jj] = malloc(sizeof(char*) * DETECT_INPUT_SIZE);
+            detlongq.key[ii].data[jj] = malloc(DETECT_INPUT_SIZE * sizeof(char*));
             if (detlongq.key[ii].data[jj] == NULL) {
                 return -1;
             }
@@ -8080,7 +8070,7 @@ static bool detlongq_keycheck(char *key, int cmdnum)
     return true;
 }
 
-static void detlongq_keystr(char *cmdstr, char *key, int cmdnum, uint32_t count)
+static void detlongq_keystr_make(char *cmdstr, char *key, int cmdnum, uint32_t count)
 {
     /* how many long request enterd */
     detlongq.longcount[cmdnum]++;
@@ -8114,7 +8104,6 @@ static void detlongq_keystr(char *cmdstr, char *key, int cmdnum, uint32_t count)
             break;
         default :
             sprintf(cmdstr, "error!");
-            detlongq.key[cmdnum].count--;
             break;
         }
     } else {
@@ -8145,7 +8134,7 @@ static int process_detlongq(conn *c, char* key, int cmdnum, uint32_t count)
     int ret;
     char *cmdstr = malloc(DETECT_INPUT_SIZE);
     if (cmdstr == NULL) {
-        mc_logger->log(EXTENSION_LOG_WARNING, NULL,
+        mc_logger->log(EXTENSION_LOG_WARNING, c,
                 "Can't allocate detect long request key buffer\n");
         pthread_mutex_lock(&detlongq.lock);
         detlongq.on_detecting = false;
@@ -8155,7 +8144,7 @@ static int process_detlongq(conn *c, char* key, int cmdnum, uint32_t count)
 
     pthread_mutex_lock(&detlongq.lock);
     if (detlongq.on_detecting) {
-        detlongq_keystr(cmdstr, key, cmdnum, count);
+        detlongq_keystr_make(cmdstr, key, cmdnum, count);
         if (strcmp(cmdstr, "no") != 0) {
             detlongq_write(c->client_ip, cmdstr, cmdnum);
         }
@@ -8211,9 +8200,13 @@ static void process_detlongq_command(conn *c, token_t *tokens, size_t ntokens)
             detlongq.on_checking = false;
         }
     } else if (ntokens > 2 && strcmp(type, "show") == 0) {
-        if (detlongq_show(c) == 0) {
-            write_and_free(c, detlongq.returnstr, strlen(detlongq.returnstr));
-            detlongq.returnstr = NULL;
+        char *retstr = calloc(DETECT_LONGQ_BUFFER_SIZE , sizeof(char));
+        if (retstr) {
+            if (detlongq_show(c, retstr) == 0)
+                write_and_free(c, retstr, strlen(retstr));
+        } else {
+            mc_logger->log(EXTENSION_LOG_WARNING, c,
+                           "return string buffer allocate failed\n");
         }
     } else {
         out_string(c,
