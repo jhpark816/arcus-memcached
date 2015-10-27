@@ -7009,7 +7009,6 @@ static void complete_nread(conn *c)
 #define BOP_KEY_TOKEN 2
 #ifdef MAP_COLLECTION_SUPPORT
 #define MOP_KEY_TOKEN 2
-#define MOP_CNUM_TOKEN 2
 #endif
 
 #define MAX_TOKENS 30
@@ -9817,7 +9816,7 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         bool drop_if_empty = false;
         uint32_t column_count = 0;
 
-        if (! safe_strtoul(tokens[MOP_CNUM_TOKEN].value, &column_count)) {
+        if (! safe_strtoul(tokens[MOP_KEY_TOKEN].value, &column_count)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
