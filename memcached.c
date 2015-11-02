@@ -8121,7 +8121,7 @@ static void detlongq_write(char client_ip[], char* command, int cmdnum)
     gettimeofday(&val, NULL);
     ptm = localtime(&val.tv_sec);
 
-    snprintf(inputstr, DETECT_INPUT_SIZE, "%02d:%02d:%02d.%06ld %s %s\n",
+    snprintf(inputstr, DETECT_INPUT_SIZE, "%02d:%02d:%02d %06ld %s %s\n",
                 ptm->tm_hour, ptm->tm_min, ptm->tm_sec, (long)val.tv_usec, client_ip, command);
     inputlen = strlen(inputstr);
 
@@ -8323,6 +8323,23 @@ static void process_lop_get(conn *c, char *key, size_t nkey,
     ret = mc_engine.v1->list_elem_get(mc_engine.v0, c, key, nkey,
                                       from_index, to_index, delete, drop_if_empty,
                                       elem_array, &elem_count, &flags, &dropped, 0);
+
+#ifdef DETECT_LONG_REQUEST
+    /* long request detection */
+    if (detlongq.on_checking) {
+        if ((from_index == 0 || from_index == -1) && elem_count < detlongq.base) {
+            /* not long request */
+        } else if ((to_index == 0 || to_index == -1) && elem_count < detlongq.base) {
+            /* not long request */
+        } else {
+            /* long request */
+            if (process_detlongq(c, key, 3, elem_count) == -1) {
+                detlongq.on_checking = false;
+            }
+        }
+    }
+#endif
+
     if (ret == ENGINE_EWOULDBLOCK) {
         c->ewouldblock = true;
         ret = ENGINE_SUCCESS;
@@ -8380,21 +8397,6 @@ static void process_lop_get(conn *c, char *key, size_t nkey,
             c->coll_op     = OPERATION_LOP_GET;
             conn_set_state(c, conn_mwrite);
             c->msgcurr     = 0;
-#ifdef DETECT_LONG_REQUEST
-            /* long request detection */
-            if (detlongq.on_checking) {
-                if ((from_index == 0 || from_index == -1) && elem_count < detlongq.base) {
-                    /* not long request */
-                } else if ((to_index == 0 || to_index == -1) && elem_count < detlongq.base) {
-                    /* not long request */
-                } else {
-                    /* long request */
-                    if (process_detlongq(c, key, 3, elem_count) == -1) {
-                        detlongq.on_checking = false;
-                    }
-                }
-            }
-#endif
         } else { /* ENGINE_ENOMEM */
             STATS_NOKEY(c, cmd_lop_get);
             mc_engine.v1->list_elem_release(mc_engine.v0, c, elem_array, elem_count);
@@ -8458,16 +8460,6 @@ static void process_lop_prepare_nread(conn *c, int cmd, size_t vlen,
         c->coll_nkey   = nkey;
         c->coll_index  = index;
         conn_set_state(c, conn_nread);
-#ifdef DETECT_LONG_REQUEST
-        /* long request detection */
-        if (detlongq.on_checking) {
-            if (index != 0 && index != -1) {
-                if (process_detlongq(c, key, 1, 0) == -1) {
-                    detlongq.on_checking = false;
-                }
-            }
-        }
-#endif
         }
         break;
     case ENGINE_DISCONNECT:
@@ -8483,6 +8475,16 @@ static void process_lop_prepare_nread(conn *c, int cmd, size_t vlen,
         c->write_and_go = conn_swallow;
         c->sbytes = vlen;
     }
+#ifdef DETECT_LONG_REQUEST
+    /* long request detection */
+    if (detlongq.on_checking) {
+        if (index != 0 && index != -1) {
+            if (process_detlongq(c, key, 1, 0) == -1) {
+                detlongq.on_checking = false;
+            }
+        }
+    }
+#endif
 }
 
 static void process_lop_create(conn *c, char *key, size_t nkey, item_attr *attrp) {
@@ -8529,6 +8531,23 @@ static void process_lop_delete(conn *c, char *key, size_t nkey,
     ret = mc_engine.v1->list_elem_delete(mc_engine.v0, c, key, nkey,
                                          from_index, to_index, drop_if_empty,
                                          &del_count, &dropped, 0);
+
+#ifdef DETECT_LONG_REQUEST
+    /* long request detection */
+    if (detlongq.on_checking) {
+        if ((from_index == 0 || from_index == -1) && del_count < detlongq.base) {
+            /* not long request */
+        } else if ((to_index == 0 || to_index == -1) && del_count < detlongq.base) {
+            /* not long request */
+        } else {
+            /* long request */
+            if (process_detlongq(c, key, 2, del_count) == -1) {
+                detlongq.on_checking = false;
+            }
+        }
+    }
+#endif
+
     if (ret == ENGINE_EWOULDBLOCK) {
         c->ewouldblock = true;
         ret = ENGINE_SUCCESS;
@@ -8543,21 +8562,6 @@ static void process_lop_delete(conn *c, char *key, size_t nkey,
         STATS_ELEM_HITS(c, lop_delete, key, nkey);
         if (dropped == false) out_string(c, "DELETED");
         else                  out_string(c, "DELETED_DROPPED");
-#ifdef DETECT_LONG_REQUEST
-        /* long request detection */
-        if (detlongq.on_checking) {
-            if ((from_index == 0 || from_index == -1) && del_count < detlongq.base) {
-                /* not long request */
-            } else if ((to_index == 0 || to_index == -1) && del_count < detlongq.base) {
-                /* not long request */
-            } else {
-                /* long request */
-                if (process_detlongq(c, key, 2, del_count) == -1) {
-                    detlongq.on_checking = false;
-                }
-            }
-        }
-#endif
         break;
     case ENGINE_ELEM_ENOENT:
         STATS_NONE_HITS(c, lop_delete, key, nkey);
@@ -8746,6 +8750,18 @@ static void process_sop_get(conn *c, char *key, size_t nkey, uint32_t count,
     ret = mc_engine.v1->set_elem_get(mc_engine.v0, c, key, nkey, req_count,
                                      delete, drop_if_empty, elem_array, &elem_count,
                                      &flags, &dropped, 0);
+
+#ifdef DETECT_LONG_REQUEST
+    /* long request detection */
+    if (detlongq.on_checking) {
+        if (elem_count >= detlongq.base) {
+            if (process_detlongq(c, key, 0, elem_count) == -1) {
+                detlongq.on_checking = false;
+            }
+        }
+    }
+#endif
+
     if (ret == ENGINE_EWOULDBLOCK) {
         c->ewouldblock = true;
         ret = ENGINE_SUCCESS;
@@ -8803,16 +8819,6 @@ static void process_sop_get(conn *c, char *key, size_t nkey, uint32_t count,
             c->coll_op     = OPERATION_SOP_GET;
             conn_set_state(c, conn_mwrite);
             c->msgcurr     = 0;
-#ifdef DETECT_LONG_REQUEST
-            /* long request detection */
-            if (detlongq.on_checking) {
-                if (elem_count >= detlongq.base) {
-                    if (process_detlongq(c, key, 0, elem_count) == -1) {
-                        detlongq.on_checking = false;
-                    }
-                }
-            }
-#endif
         } else { /* ENGINE_ENOMEM */
             STATS_NOKEY(c, cmd_sop_get);
             mc_engine.v1->set_elem_release(mc_engine.v0, c, elem_array, elem_count);
@@ -9116,6 +9122,18 @@ static void process_bop_get(conn *c, char *key, size_t nkey,
                                        delete, drop_if_empty,
                                        elem_array, &elem_count, &access_count,
                                        &flags, &dropped_trimmed, 0);
+
+#ifdef DETECT_LONG_REQUEST
+    /* long request detection */
+    if (detlongq.on_checking) {
+        if (access_count >= detlongq.base) {
+            if (process_detlongq(c, key, 5, access_count) == -1) {
+                detlongq.on_checking = false;
+            }
+        }
+    }
+#endif
+
     if (ret == ENGINE_EWOULDBLOCK) {
         c->ewouldblock = true;
         ret = ENGINE_SUCCESS;
@@ -9177,16 +9195,6 @@ static void process_bop_get(conn *c, char *key, size_t nkey,
             c->coll_op     = OPERATION_BOP_GET;
             conn_set_state(c, conn_mwrite);
             c->msgcurr     = 0;
-#ifdef DETECT_LONG_REQUEST
-            /* long request detection */
-            if (detlongq.on_checking) {
-                if (access_count >= detlongq.base) {
-                    if (process_detlongq(c, key, 5, access_count) == -1) {
-                        detlongq.on_checking = false;
-                    }
-                }
-            }
-#endif
         } else { /* ENGINE_ENOMEM */
             STATS_NOKEY(c, cmd_bop_get);
             mc_engine.v1->btree_elem_release(mc_engine.v0, c, elem_array, elem_count);
@@ -9234,6 +9242,16 @@ static void process_bop_count(conn *c, char *key, size_t nkey,
     ret = mc_engine.v1->btree_elem_count(mc_engine.v0, c,
                                          key, nkey, bkrange, efilter,
                                          &elem_count, &access_count, 0);
+#ifdef DETECT_LONG_REQUEST
+    /* long request detection */
+    if (detlongq.on_checking) {
+        if (access_count >= detlongq.base) {
+            if (process_detlongq(c, key, 6, access_count) == -1) {
+                detlongq.on_checking = false;
+            }
+        }
+    }
+#endif
 
     if (settings.detail_enabled) {
         stats_prefix_record_bop_count(key, nkey, (ret==ENGINE_SUCCESS));
@@ -9247,16 +9265,6 @@ static void process_bop_count(conn *c, char *key, size_t nkey,
 
         sprintf(buffer, "COUNT=%u", elem_count);
         out_string(c, buffer);
-#ifdef DETECT_LONG_REQUEST
-        /* long request detection */
-        if (detlongq.on_checking) {
-            if (access_count >= detlongq.base) {
-                if (process_detlongq(c, key, 6, access_count) == -1) {
-                    detlongq.on_checking = false;
-                }
-            }
-        }
-#endif
         }
         break;
     case ENGINE_DISCONNECT:
@@ -9454,6 +9462,17 @@ static void process_bop_gbp(conn *c, char *key, size_t nkey, ENGINE_BTREE_ORDER 
                                                order, from_posi, to_posi,
                                                elem_array, &elem_count, &flags, 0);
 
+#ifdef DETECT_LONG_REQUEST
+    /* long request detection */
+    if (detlongq.on_checking) {
+        if (elem_count >= detlongq.base) {
+            if (process_detlongq(c, key, 7, elem_count) == -1) {
+                detlongq.on_checking = false;
+            }
+        }
+    }
+#endif
+
     if (settings.detail_enabled) {
         stats_prefix_record_bop_gbp(key, nkey, (ret==ENGINE_SUCCESS || ret==ENGINE_ELEM_ENOENT));
     }
@@ -9506,16 +9525,6 @@ static void process_bop_gbp(conn *c, char *key, size_t nkey, ENGINE_BTREE_ORDER 
             c->coll_op     = OPERATION_BOP_GBP;
             conn_set_state(c, conn_mwrite);
             c->msgcurr     = 0;
-#ifdef DETECT_LONG_REQUEST
-            /* long request detection */
-            if (detlongq.on_checking) {
-                if (elem_count >= detlongq.base) {
-                    if (process_detlongq(c, key, 7, elem_count) == -1) {
-                        detlongq.on_checking = false;
-                    }
-                }
-            }
-#endif
         } else { /* ENGINE_ENOMEM */
             STATS_NOKEY(c, cmd_bop_gbp);
             mc_engine.v1->btree_elem_release(mc_engine.v0, c, elem_array, elem_count);
@@ -9767,6 +9776,18 @@ static void process_bop_delete(conn *c, char *key, size_t nkey,
     ret = mc_engine.v1->btree_elem_delete(mc_engine.v0, c, key, nkey,
                                           bkrange, efilter, count, drop_if_empty,
                                           &del_count, &acc_count, &dropped, 0);
+
+#ifdef DETECT_LONG_REQUEST
+    /* long request detection */
+    if (detlongq.on_checking) {
+        if (acc_count >= detlongq.base) {
+            if (process_detlongq(c, key, 4, acc_count) == -1) {
+                detlongq.on_checking = false;
+            }
+        }
+    }
+#endif
+
     if (ret == ENGINE_EWOULDBLOCK) {
         c->ewouldblock = true;
         ret = ENGINE_SUCCESS;
@@ -9781,16 +9802,6 @@ static void process_bop_delete(conn *c, char *key, size_t nkey,
         STATS_ELEM_HITS(c, bop_delete, key, nkey);
         if (dropped == false) out_string(c, "DELETED");
         else                  out_string(c, "DELETED_DROPPED");
-#ifdef DETECT_LONG_REQUEST
-        /* long request detection */
-        if (detlongq.on_checking) {
-            if (acc_count >= detlongq.base) {
-                if (process_detlongq(c, key, 4, acc_count) == -1) {
-                    detlongq.on_checking = false;
-                }
-            }
-        }
-#endif
         break;
     case ENGINE_ELEM_ENOENT:
         STATS_NONE_HITS(c, bop_delete, key, nkey);
