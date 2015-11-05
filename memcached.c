@@ -9784,17 +9784,19 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
             process_mop_prepare_nread(c, (int)OPERATION_MOP_DELETE, vlen, key, nkey);
         }
     }
-    else if ((ntokens==5 || ntokens==6) && (strcmp(subcommand, "get") == 0))
+//  else if ((ntokens==5 || ntokens==6) && (strcmp(subcommand, "get") == 0))
+    else if ((ntokens==4 || ntokens==5) && (strcmp(subcommand, "get") == 0))
     {
         bool delete = false;
         bool drop_if_empty = false;
         uint32_t count = 0;
 
-        if (! safe_strtoul(tokens[MOP_KEY_TOKEN+1].value, &count)) {
+        /*if (! safe_strtoul(tokens[MOP_KEY_TOKEN+1].value, &count)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
-        }
+        }*/
 
+/*
         if (ntokens == 6) {
             if (strcmp(tokens[MOP_KEY_TOKEN+2].value, "delete")==0) {
                 delete = true;
@@ -9806,10 +9808,24 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
                 return;
             }
         }
+*/
+
+        if (ntokens == 5) {
+            if (strcmp(tokens[MOP_KEY_TOKEN+1].value, "delete")==0) {
+                delete = true;
+            } else if (strcmp(tokens[MOP_KEY_TOKEN+1].value, "drop")==0) {
+                delete = true;
+                drop_if_empty = true;
+            } else {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+        }
 
         process_mop_get(c, key, nkey, count, delete, drop_if_empty);
     }
-    else if (ntokens >= 5 && (strcmp(subcommand, "mget") == 0))
+//  else if (ntokens >= 5 && (strcmp(subcommand, "mget") == 0))
+    else if (ntokens >= 4 && (strcmp(subcommand, "mget") == 0))
     {
         int ii = 0;
         bool delete = false;
@@ -9821,6 +9837,7 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
             return;
         }
 
+/*
         if (ntokens == column_count*2+5) {
             if (strcmp(tokens[MOP_KEY_TOKEN+(column_count*2)+1].value, "delete")==0) {
                 delete = true;
@@ -9832,16 +9849,31 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
                 return;
             }
         }
+*/
 
-        for(ii = 0; ii < column_count; ii++) {
-            char *mkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].value;
-            size_t mnkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].length;
-            uint32_t mcount = 0;
-
-            if (! safe_strtoul(tokens[MOP_KEY_TOKEN+(ii*2)+2].value, &mcount)) {
+        if (ntokens == column_count+5) {
+            if (strcmp(tokens[MOP_KEY_TOKEN+column_count+1].value, "delete")==0) {
+                delete = true;
+            } else if (strcmp(tokens[MOP_KEY_TOKEN+column_count+1].value, "drop")==0) {
+                delete = true;
+                drop_if_empty = true;
+            } else {
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
             }
+        }
+
+        for(ii = 0; ii < column_count; ii++) {
+//            char *mkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].value;
+//            size_t mnkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].length;
+            char *mkey = tokens[MOP_KEY_TOKEN+ii+1].value;
+            size_t mnkey = tokens[MOP_KEY_TOKEN+ii+1].length;
+            uint32_t mcount = 0;
+
+            /*if (! safe_strtoul(tokens[MOP_KEY_TOKEN+ii+2].value, &mcount)) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }*/
             process_mop_get(c, mkey, mnkey, mcount, delete, drop_if_empty);
         }
     }
@@ -11784,7 +11816,7 @@ static void process_command(conn *c, char *command)
         process_bop_command(c, tokens, ntokens);
     }
 #ifdef MAP_COLLECTION_SUPPORT
-    else if (ntokens >= 5  && (strcmp(tokens[COMMAND_TOKEN].value, "mop") == 0))
+    else if (ntokens >= 4  && (strcmp(tokens[COMMAND_TOKEN].value, "mop") == 0))
     {
         process_mop_command(c, tokens, ntokens);
     }
