@@ -604,7 +604,6 @@ struct conn {
 };
 
 #ifdef DETECT_LONG_REQUEST
-
 /*
  * Detect long request
  */
@@ -619,6 +618,14 @@ struct conn {
 /* bop count  : number 6       */
 /* bop gbp    : number 7       */
 /* *************************** */
+#define LONGQ_COMMAND_SOP_GET        0
+#define LONGQ_COMMAND_LOP_INSERT     1
+#define LONGQ_COMMAND_LOP_DELETE     2
+#define LONGQ_COMMAND_LOP_GET        3
+#define LONGQ_COMMAND_BOP_DELETE     4
+#define LONGQ_COMMAND_BOP_GET        5
+#define LONGQ_COMMAND_BOP_COUNT      6
+#define LONGQ_COMMAND_BOP_GBP        7
 
 #define DETECT_COMMAND_NUM           8     /* detectiong command count */
 #define DETECT_LONGQ_BASE            4000  /* basic detect condition */

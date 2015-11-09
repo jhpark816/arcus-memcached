@@ -8020,10 +8020,10 @@ static int detlongq_start()
     pthread_mutex_lock(&detlongq.lock);
     if (detlongq.on_detecting == false) {
         for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
-            for(jj = 0; jj < DETECT_LONGQ_SAVE_SIZE; jj++) {
-                detlongq.key[ii].data[jj][0] = '\0';
-            }
-            detlongq.buffer[ii].data[0] = '\0';
+            for(jj = 0; jj < DETECT_LONGQ_SAVE_SIZE; jj++)
+                memset(detlongq.key[ii].data[jj], 0, DETECT_INPUT_SIZE * sizeof(char *));
+
+            memset(detlongq.buffer[ii].data, 0, DETECT_LONGQ_PER_BUFFER_SIZE * sizeof(char*));
             detlongq.buffer[ii].offset = 0;
             detlongq.key[ii].count = 0;
             detlongq.longcount[ii] = 0;
@@ -8338,7 +8338,7 @@ static void process_lop_get(conn *c, char *key, size_t nkey,
 
             if (cmdarg) {
                 snprintf(cmdarg, 12, "%d,%d", from_index, to_index);
-                if (process_detlongq(c, key, 3, elem_count, cmdarg) == -1) {
+                if (process_detlongq(c, key, LONGQ_COMMAND_LOP_GET, elem_count, cmdarg) == -1) {
                     detlongq.on_checking = false;
                 }
                 free(cmdarg);
@@ -8538,7 +8538,7 @@ static void process_lop_delete(conn *c, char *key, size_t nkey,
 
             if (cmdarg) {
                 snprintf(cmdarg, MAX_BKEY_LENG*2+2, "%d,%d", from_index, to_index);
-                if (process_detlongq(c, key, 2, del_count, cmdarg) == -1) {
+                if (process_detlongq(c, key, LONGQ_COMMAND_LOP_DELETE, del_count, cmdarg) == -1) {
                     detlongq.on_checking = false;
                 }
                 free(cmdarg);
@@ -8655,7 +8655,7 @@ static void process_lop_command(conn *c, token_t *tokens, const size_t ntokens)
 
                 if (cmdarg) {
                     snprintf(cmdarg, 5, "%d", index);
-                    if (process_detlongq(c, key, 1, 0, cmdarg) == -1) {
+                    if (process_detlongq(c, key, LONGQ_COMMAND_LOP_INSERT, 0, cmdarg) == -1) {
                         detlongq.on_checking = false;
                     }
                     free(cmdarg);
@@ -8773,7 +8773,7 @@ static void process_sop_get(conn *c, char *key, size_t nkey, uint32_t count,
 
             if (cmdarg) {
                 snprintf(cmdarg, 5, "%d", count);
-                if (process_detlongq(c, key, 0, elem_count, cmdarg) == -1) {
+                if (process_detlongq(c, key, LONGQ_COMMAND_SOP_GET, elem_count, cmdarg) == -1) {
                     detlongq.on_checking = false;
                 }
                 free(cmdarg);
@@ -9151,7 +9151,7 @@ static void process_bop_get(conn *c, char *key, size_t nkey,
 
             if (cmdarg) {
                 snprintf(cmdarg, MAX_BKEY_LENG*2+2, "%s,%s", bkrange->from_bkey, bkrange->to_bkey);
-                if (process_detlongq(c, key, 5, access_count, cmdarg) == -1) {
+                if (process_detlongq(c, key, LONGQ_COMMAND_BOP_GET, access_count, cmdarg) == -1) {
                     detlongq.on_checking = false;
                 }
                 free(cmdarg);
@@ -9276,7 +9276,7 @@ static void process_bop_count(conn *c, char *key, size_t nkey,
 
             if (cmdarg) {
                 snprintf(cmdarg, MAX_BKEY_LENG*2+2, "%s,%s", bkrange->from_bkey, bkrange->to_bkey);
-                if (process_detlongq(c, key, 6, access_count, cmdarg) == -1) {
+                if (process_detlongq(c, key, LONGQ_COMMAND_BOP_COUNT, access_count, cmdarg) == -1) {
                     detlongq.on_checking = false;
                 }
                 free(cmdarg);
@@ -9502,7 +9502,7 @@ static void process_bop_gbp(conn *c, char *key, size_t nkey, ENGINE_BTREE_ORDER 
 
             if (cmdarg) {
                 snprintf(cmdarg, 12, "%d,%d", from_posi, to_posi);
-                if (process_detlongq(c, key, 7, elem_count, cmdarg) == -1) {
+                if (process_detlongq(c, key, LONGQ_COMMAND_BOP_GBP, elem_count, cmdarg) == -1) {
                     detlongq.on_checking = false;
                 }
                 free(cmdarg);
@@ -9823,7 +9823,7 @@ static void process_bop_delete(conn *c, char *key, size_t nkey,
 
             if (cmdarg) {
                 snprintf(cmdarg, MAX_BKEY_LENG*2+2, "%s,%s", bkrange->from_bkey, bkrange->to_bkey);
-                if (process_detlongq(c, key, 4, acc_count, cmdarg) == -1) {
+                if (process_detlongq(c, key, LONGQ_COMMAND_BOP_DELETE, acc_count, cmdarg) == -1) {
                     detlongq.on_checking = false;
                 }
                 free(cmdarg);
