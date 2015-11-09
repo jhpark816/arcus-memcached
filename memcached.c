@@ -8679,7 +8679,9 @@ static inline int get_coll_create_attr_from_tokens(token_t *tokens, const int nt
     } else {
         attrp->maxcount = 0; /* default value */
     }
-
+#ifdef MAP_COLLECTION_SUPPORT
+    if (coll_type == ITEM_TYPE_MAP) attrp->maxcount = 1;
+#endif
     attrp->ovflaction = 0; /* undefined : will be set to default later */
     attrp->readable   = 1; /* readable = on */
 

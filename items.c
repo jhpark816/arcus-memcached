@@ -2461,10 +2461,9 @@ static ENGINE_ERROR_CODE do_map_elem_link(struct default_engine *engine,
             break;
     }
 
-    /* map collection support duplication
     if (find != NULL) {
         return ENGINE_ELEM_EEXISTS;
-    } */
+    }
 
     if (node->hcnt[hidx] >= MAP_MAX_HASHCHAIN_SIZE) {
         map_hash_node *n_node = do_map_node_alloc(engine, node->hdepth+1, cookie);
