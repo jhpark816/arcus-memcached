@@ -8079,28 +8079,28 @@ static void detlongq_keystr_make(char *cmdstr, char *key, int cmdnum, uint32_t c
         detlongq.key[cmdnum].count++;
         switch(cmdnum) {
         case 0 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "sop get %s | get_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "sop get %s get_count:%d", key, count);
             break;
         case 1 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "lop insert %s", key);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "lop insert %s count:%d", key, 0);
             break;
         case 2 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "lop delete %s | del_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "lop delete %s del_count:%d", key, count);
             break;
         case 3 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "lop get %s | get_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "lop get %s get_count:%d", key, count);
             break;
         case 4 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop delete %s | del_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop delete %s del_count:%d", key, count);
             break;
         case 5 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop get %s | get_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop get %s get_count:%d", key, count);
             break;
         case 6 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop count %s | count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop count %s count:%d", key, count);
             break;
         case 7 :
-            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop gbp %s | get_count : %d", key, count);
+            snprintf(cmdstr, DETECT_INPUT_SIZE, "bop gbp %s get_count:%d", key, count);
             break;
         default :
             sprintf(cmdstr, "error!");
@@ -8111,7 +8111,7 @@ static void detlongq_keystr_make(char *cmdstr, char *key, int cmdnum, uint32_t c
     }
 }
 
-static void detlongq_write(char client_ip[], char* command, int cmdnum)
+static void detlongq_write(char client_ip[], char* command, int cmdnum, char* cmdarg)
 {
     struct timeval val;
     struct tm *ptm;
@@ -8121,15 +8121,15 @@ static void detlongq_write(char client_ip[], char* command, int cmdnum)
     gettimeofday(&val, NULL);
     ptm = localtime(&val.tv_sec);
 
-    snprintf(inputstr, DETECT_INPUT_SIZE, "%02d:%02d:%02d %06ld %s %s\n",
-                ptm->tm_hour, ptm->tm_min, ptm->tm_sec, (long)val.tv_usec, client_ip, command);
+    snprintf(inputstr, DETECT_INPUT_SIZE, "%02d:%02d:%02d %06ld %s %s args:%s\n",
+                ptm->tm_hour, ptm->tm_min, ptm->tm_sec, (long)val.tv_usec, client_ip, command, cmdarg);
     inputlen = strlen(inputstr);
 
     memcpy(detlongq.buffer[cmdnum].data + detlongq.buffer[cmdnum].offset, inputstr, inputlen);
     detlongq.buffer[cmdnum].offset += inputlen;
 }
 
-static int process_detlongq(conn *c, char* key, int cmdnum, uint32_t count)
+static int process_detlongq(conn *c, char* key, int cmdnum, uint32_t count, char* cmdarg)
 {
     int ret;
     char *cmdstr = malloc(DETECT_INPUT_SIZE);
@@ -8146,7 +8146,7 @@ static int process_detlongq(conn *c, char* key, int cmdnum, uint32_t count)
     if (detlongq.on_detecting) {
         detlongq_keystr_make(cmdstr, key, cmdnum, count);
         if (strcmp(cmdstr, "no") != 0) {
-            detlongq_write(c->client_ip, cmdstr, cmdnum);
+            detlongq_write(c->client_ip, cmdstr, cmdnum, cmdarg);
         }
         free(cmdstr);
 
@@ -8168,12 +8168,14 @@ static void process_detlongq_command(conn *c, token_t *tokens, size_t ntokens)
     char *type = tokens[COMMAND_TOKEN+1].value;
 
     if (ntokens > 2 && strcmp(type, "start") == 0) {
-        if (ntokens == 3) {
-            detlongq.base = DETECT_LONGQ_BASE;
-        } else {
-            if (! safe_strtoul(tokens[COMMAND_TOKEN+2].value, &detlongq.base)) {
-                out_string(c, "CLIENT_ERROR bad command line format");
-                return;
+        if (detlongq.on_checking == false) {
+            if (ntokens == 3) {
+                detlongq.base = DETECT_LONGQ_BASE;
+            } else {
+                if (! safe_strtoul(tokens[COMMAND_TOKEN+2].value, &detlongq.base)) {
+                    out_string(c, "CLIENT_ERROR bad command line format");
+                    return;
+                }
             }
         }
 
@@ -8202,8 +8204,11 @@ static void process_detlongq_command(conn *c, token_t *tokens, size_t ntokens)
     } else if (ntokens > 2 && strcmp(type, "show") == 0) {
         char *retstr = calloc(DETECT_LONGQ_BUFFER_SIZE , sizeof(char));
         if (retstr) {
-            if (detlongq_show(c, retstr) == 0)
+            if (detlongq_show(c, retstr) == 0) {
                 write_and_free(c, retstr, strlen(retstr));
+            } else {
+                free(retstr);
+            }
         } else {
             mc_logger->log(EXTENSION_LOG_WARNING, c,
                            "return string buffer allocate failed\n");
@@ -8327,14 +8332,16 @@ static void process_lop_get(conn *c, char *key, size_t nkey,
 #ifdef DETECT_LONG_REQUEST
     /* long request detection */
     if (detlongq.on_checking) {
-        if ((from_index == 0 || from_index == -1) && elem_count < detlongq.base) {
-            /* not long request */
-        } else if ((to_index == 0 || to_index == -1) && elem_count < detlongq.base) {
-            /* not long request */
-        } else {
-            /* long request */
-            if (process_detlongq(c, key, 3, elem_count) == -1) {
-                detlongq.on_checking = false;
+        if (elem_count >= detlongq.base && !(from_index == 0 || from_index == -1)
+                                        && !(to_index == 0 || to_index == -1)) {
+            char* cmdarg = malloc(12);
+
+            if (cmdarg) {
+                snprintf(cmdarg, 12, "%d,%d", from_index, to_index);
+                if (process_detlongq(c, key, 3, elem_count, cmdarg) == -1) {
+                    detlongq.on_checking = false;
+                }
+                free(cmdarg);
             }
         }
     }
@@ -8475,16 +8482,6 @@ static void process_lop_prepare_nread(conn *c, int cmd, size_t vlen,
         c->write_and_go = conn_swallow;
         c->sbytes = vlen;
     }
-#ifdef DETECT_LONG_REQUEST
-    /* long request detection */
-    if (detlongq.on_checking) {
-        if (index != 0 && index != -1) {
-            if (process_detlongq(c, key, 1, 0) == -1) {
-                detlongq.on_checking = false;
-            }
-        }
-    }
-#endif
 }
 
 static void process_lop_create(conn *c, char *key, size_t nkey, item_attr *attrp) {
@@ -8535,14 +8532,16 @@ static void process_lop_delete(conn *c, char *key, size_t nkey,
 #ifdef DETECT_LONG_REQUEST
     /* long request detection */
     if (detlongq.on_checking) {
-        if ((from_index == 0 || from_index == -1) && del_count < detlongq.base) {
-            /* not long request */
-        } else if ((to_index == 0 || to_index == -1) && del_count < detlongq.base) {
-            /* not long request */
-        } else {
-            /* long request */
-            if (process_detlongq(c, key, 2, del_count) == -1) {
-                detlongq.on_checking = false;
+        if (del_count >= detlongq.base && !(from_index == 0 || from_index == -1)
+                                       && !(to_index == 0 || to_index == -1)) {
+            char* cmdarg = malloc(MAX_BKEY_LENG * 2 + 2);
+
+            if (cmdarg) {
+                snprintf(cmdarg, MAX_BKEY_LENG*2+2, "%d,%d", from_index, to_index);
+                if (process_detlongq(c, key, 2, del_count, cmdarg) == -1) {
+                    detlongq.on_checking = false;
+                }
+                free(cmdarg);
             }
         }
     }
@@ -8648,7 +8647,22 @@ static void process_lop_command(conn *c, token_t *tokens, const size_t ntokens)
             }
             c->coll_attrp = NULL;
         }
+#ifdef DETECT_LONG_REQUEST
+        /* long request detection */
+        if (detlongq.on_checking) {
+            if (index != 0 && index != -1) {
+                char* cmdarg = malloc(5);
 
+                if (cmdarg) {
+                    snprintf(cmdarg, 5, "%d", index);
+                    if (process_detlongq(c, key, 1, 0, cmdarg) == -1) {
+                        detlongq.on_checking = false;
+                    }
+                    free(cmdarg);
+                }
+            }
+        }
+#endif
         process_lop_prepare_nread(c, (int)OPERATION_LOP_INSERT, vlen, key, nkey, index);
     }
     else if ((ntokens >= 7 && ntokens <= 10) && (strcmp(subcommand, "create") == 0))
@@ -8755,8 +8769,14 @@ static void process_sop_get(conn *c, char *key, size_t nkey, uint32_t count,
     /* long request detection */
     if (detlongq.on_checking) {
         if (elem_count >= detlongq.base) {
-            if (process_detlongq(c, key, 0, elem_count) == -1) {
-                detlongq.on_checking = false;
+            char* cmdarg = malloc(5);
+
+            if (cmdarg) {
+                snprintf(cmdarg, 5, "%d", count);
+                if (process_detlongq(c, key, 0, elem_count, cmdarg) == -1) {
+                    detlongq.on_checking = false;
+                }
+                free(cmdarg);
             }
         }
     }
@@ -9127,8 +9147,14 @@ static void process_bop_get(conn *c, char *key, size_t nkey,
     /* long request detection */
     if (detlongq.on_checking) {
         if (access_count >= detlongq.base) {
-            if (process_detlongq(c, key, 5, access_count) == -1) {
-                detlongq.on_checking = false;
+            char* cmdarg = malloc(MAX_BKEY_LENG * 2 + 2);
+
+            if (cmdarg) {
+                snprintf(cmdarg, MAX_BKEY_LENG*2+2, "%s,%s", bkrange->from_bkey, bkrange->to_bkey);
+                if (process_detlongq(c, key, 5, access_count, cmdarg) == -1) {
+                    detlongq.on_checking = false;
+                }
+                free(cmdarg);
             }
         }
     }
@@ -9246,8 +9272,14 @@ static void process_bop_count(conn *c, char *key, size_t nkey,
     /* long request detection */
     if (detlongq.on_checking) {
         if (access_count >= detlongq.base) {
-            if (process_detlongq(c, key, 6, access_count) == -1) {
-                detlongq.on_checking = false;
+            char* cmdarg = malloc(MAX_BKEY_LENG * 2 + 2);
+
+            if (cmdarg) {
+                snprintf(cmdarg, MAX_BKEY_LENG*2+2, "%s,%s", bkrange->from_bkey, bkrange->to_bkey);
+                if (process_detlongq(c, key, 6, access_count, cmdarg) == -1) {
+                    detlongq.on_checking = false;
+                }
+                free(cmdarg);
             }
         }
     }
@@ -9466,8 +9498,14 @@ static void process_bop_gbp(conn *c, char *key, size_t nkey, ENGINE_BTREE_ORDER 
     /* long request detection */
     if (detlongq.on_checking) {
         if (elem_count >= detlongq.base) {
-            if (process_detlongq(c, key, 7, elem_count) == -1) {
-                detlongq.on_checking = false;
+            char* cmdarg = malloc(12);
+
+            if (cmdarg) {
+                snprintf(cmdarg, 12, "%d,%d", from_posi, to_posi);
+                if (process_detlongq(c, key, 7, elem_count, cmdarg) == -1) {
+                    detlongq.on_checking = false;
+                }
+                free(cmdarg);
             }
         }
     }
@@ -9781,8 +9819,14 @@ static void process_bop_delete(conn *c, char *key, size_t nkey,
     /* long request detection */
     if (detlongq.on_checking) {
         if (acc_count >= detlongq.base) {
-            if (process_detlongq(c, key, 4, acc_count) == -1) {
-                detlongq.on_checking = false;
+            char* cmdarg = malloc(MAX_BKEY_LENG * 2 + 2);
+
+            if (cmdarg) {
+                snprintf(cmdarg, MAX_BKEY_LENG*2+2, "%s,%s", bkrange->from_bkey, bkrange->to_bkey);
+                if (process_detlongq(c, key, 4, acc_count, cmdarg) == -1) {
+                    detlongq.on_checking = false;
+                }
+                free(cmdarg);
             }
         }
     }
