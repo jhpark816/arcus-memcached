@@ -7942,22 +7942,24 @@ static void detlongq_shorted(char *str, int cmdnum)
 static int detlongq_show(conn *c, char* retstr)
 {
     int ii, len = 0;
+    char *str = malloc(DETECT_LONGQ_PER_BUFFER_SIZE + DETECT_LONGQ_SAVE_SIZE * 3);
+
+    if (str == NULL) {
+        mc_logger->log(EXTENSION_LOG_WARNING, c,
+                       "Detlongq return string allocate failed\n");
+        free(retstr);
+        return -1;
+    }
 
     /* create detected long request return string*/
     for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
-        char *str = malloc(DETECT_LONGQ_PER_BUFFER_SIZE + DETECT_LONGQ_SAVE_SIZE * 3);
-        if (str == NULL) {
-            mc_logger->log(EXTENSION_LOG_WARNING, c,
-                           "Detlongq return string allocate failed\n");
-            free(retstr);
-            return -1;
-        }
+        memset(str, 0, sizeof(*str));
         detlongq_shorted(str, ii);
         memcpy(retstr + len, str, strlen(str));
         len += strlen(str);
-        free(str);
-        str = NULL;
     }
+
+    free(str);
     return 0;
 }
 
@@ -8020,9 +8022,9 @@ static int detlongq_start()
     pthread_mutex_lock(&detlongq.lock);
     if (detlongq.on_detecting == false) {
         for(ii = 0; ii < DETECT_COMMAND_NUM; ii++) {
-            for(jj = 0; jj < DETECT_LONGQ_SAVE_SIZE; jj++)
+            for(jj = 0; jj < DETECT_LONGQ_SAVE_SIZE; jj++) {
                 memset(detlongq.key[ii].data[jj], 0, DETECT_INPUT_SIZE * sizeof(char *));
-
+            }
             memset(detlongq.buffer[ii].data, 0, DETECT_LONGQ_PER_BUFFER_SIZE * sizeof(char*));
             detlongq.buffer[ii].offset = 0;
             detlongq.key[ii].count = 0;
@@ -8066,7 +8068,6 @@ static bool detlongq_keycheck(char *key, int cmdnum)
     }
 
     snprintf(detlongq.key[cmdnum].data[count], DETECT_INPUT_SIZE, key);
-
     return true;
 }
 
@@ -8074,6 +8075,7 @@ static void detlongq_keystr_make(char *cmdstr, char *key, int cmdnum, uint32_t c
 {
     /* how many long request enterd */
     detlongq.longcount[cmdnum]++;
+
     if (detlongq_keycheck(key, cmdnum)) {
         /* long request command saved count */
         detlongq.key[cmdnum].count++;
@@ -8121,7 +8123,7 @@ static void detlongq_write(char client_ip[], char* command, int cmdnum, char* cm
     gettimeofday(&val, NULL);
     ptm = localtime(&val.tv_sec);
 
-    snprintf(inputstr, DETECT_INPUT_SIZE, "%02d:%02d:%02d %06ld %s %s args:%s\n",
+    snprintf(inputstr, DETECT_INPUT_SIZE, "%02d:%02d:%02d.%06ld %s %s args:%s\n",
                 ptm->tm_hour, ptm->tm_min, ptm->tm_sec, (long)val.tv_usec, client_ip, command, cmdarg);
     inputlen = strlen(inputstr);
 
@@ -8131,24 +8133,16 @@ static void detlongq_write(char client_ip[], char* command, int cmdnum, char* cm
 
 static int process_detlongq(conn *c, char* key, int cmdnum, uint32_t count, char* cmdarg)
 {
+    char cmdstr[DETECT_INPUT_SIZE], *cmdstr_p;
     int ret;
-    char *cmdstr = malloc(DETECT_INPUT_SIZE);
-    if (cmdstr == NULL) {
-        mc_logger->log(EXTENSION_LOG_WARNING, c,
-                "Can't allocate detect long request key buffer\n");
-        pthread_mutex_lock(&detlongq.lock);
-        detlongq.on_detecting = false;
-        pthread_mutex_unlock(&detlongq.lock);
-        return -1;
-    }
 
+    cmdstr_p = cmdstr;
     pthread_mutex_lock(&detlongq.lock);
     if (detlongq.on_detecting) {
-        detlongq_keystr_make(cmdstr, key, cmdnum, count);
+        detlongq_keystr_make(cmdstr_p, key, cmdnum, count);
         if (strcmp(cmdstr, "no") != 0) {
-            detlongq_write(c->client_ip, cmdstr, cmdnum, cmdarg);
+            detlongq_write(c->client_ip, cmdstr_p, cmdnum, cmdarg);
         }
-        free(cmdstr);
 
         /* internal stop */
         if (detlongq.key[cmdnum].count >= DETECT_LONGQ_SAVE_SIZE) {
@@ -8206,8 +8200,6 @@ static void process_detlongq_command(conn *c, token_t *tokens, size_t ntokens)
         if (retstr) {
             if (detlongq_show(c, retstr) == 0) {
                 write_and_free(c, retstr, strlen(retstr));
-            } else {
-                free(retstr);
             }
         } else {
             mc_logger->log(EXTENSION_LOG_WARNING, c,
