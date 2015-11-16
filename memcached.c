@@ -7824,6 +7824,12 @@ static void process_help_command(conn *c, token_t *tokens, const size_t ntokens)
         "\t" "stats scrub\\r\\n" "\n"
         "\t" "stats cachedump <slab_clsid> <limit> [forward|backward [sticky]]\\r\\n" "\n"
         "\t" "stats reset\\r\\n" "\n"
+#ifdef DETECT_LONG_REQUEST
+        "\n"
+        "\t" "detect start [<detect_standard>]\\r\\n" "\n"
+        "\t" "detect stop\\r\\n" "\n"
+        "\t" "detect show\\r\\n" "\n"
+#endif
         "\n"
         "\t" "config verbosity [<verbose>]\\r\\n" "\n"
         "\t" "config memlimit [<memsize(MB)>]\\r\\n" "\n"
@@ -8164,9 +8170,9 @@ static void process_detlongq_command(conn *c, token_t *tokens, size_t ntokens)
     if (ntokens > 2 && strcmp(type, "start") == 0) {
         if (detlongq.on_checking == false) {
             if (ntokens == 3) {
-                detlongq.base = DETECT_LONGQ_BASE;
+                detlongq.standard = DETECT_LONGQ_STANDARD_BASE;
             } else {
-                if (! safe_strtoul(tokens[COMMAND_TOKEN+2].value, &detlongq.base)) {
+                if (! safe_strtoul(tokens[COMMAND_TOKEN+2].value, &detlongq.standard)) {
                     out_string(c, "CLIENT_ERROR bad command line format");
                     return;
                 }
@@ -8196,7 +8202,7 @@ static void process_detlongq_command(conn *c, token_t *tokens, size_t ntokens)
             detlongq.on_checking = false;
         }
     } else if (ntokens > 2 && strcmp(type, "show") == 0) {
-        char *retstr = calloc(DETECT_LONGQ_BUFFER_SIZE , sizeof(char));
+        char *retstr = calloc(DETECT_LONGQ_BUFFER_SIZE, sizeof(char));
         if (retstr) {
             if (detlongq_show(c, retstr) == 0) {
                 write_and_free(c, retstr, strlen(retstr));
@@ -8207,7 +8213,7 @@ static void process_detlongq_command(conn *c, token_t *tokens, size_t ntokens)
         }
     } else {
         out_string(c,
-        "\t" "* Usage: detect [start [base] | stop | show]" "\n"
+        "\t" "* Usage: detect [start [standard] | stop | show]" "\n"
         );
     }
 }
@@ -8324,7 +8330,7 @@ static void process_lop_get(conn *c, char *key, size_t nkey,
 #ifdef DETECT_LONG_REQUEST
     /* long request detection */
     if (detlongq.on_checking) {
-        if (elem_count >= detlongq.base && !(from_index == 0 || from_index == -1)
+        if (elem_count >= detlongq.standard && !(from_index == 0 || from_index == -1)
                                         && !(to_index == 0 || to_index == -1)) {
             char* cmdarg = malloc(12);
 
@@ -8524,7 +8530,7 @@ static void process_lop_delete(conn *c, char *key, size_t nkey,
 #ifdef DETECT_LONG_REQUEST
     /* long request detection */
     if (detlongq.on_checking) {
-        if (del_count >= detlongq.base && !(from_index == 0 || from_index == -1)
+        if (del_count >= detlongq.standard && !(from_index == 0 || from_index == -1)
                                        && !(to_index == 0 || to_index == -1)) {
             char* cmdarg = malloc(MAX_BKEY_LENG * 2 + 2);
 
@@ -8760,7 +8766,7 @@ static void process_sop_get(conn *c, char *key, size_t nkey, uint32_t count,
 #ifdef DETECT_LONG_REQUEST
     /* long request detection */
     if (detlongq.on_checking) {
-        if (elem_count >= detlongq.base) {
+        if (elem_count >= detlongq.standard) {
             char* cmdarg = malloc(5);
 
             if (cmdarg) {
@@ -9138,7 +9144,7 @@ static void process_bop_get(conn *c, char *key, size_t nkey,
 #ifdef DETECT_LONG_REQUEST
     /* long request detection */
     if (detlongq.on_checking) {
-        if (access_count >= detlongq.base) {
+        if (access_count >= detlongq.standard) {
             char* cmdarg = malloc(MAX_BKEY_LENG * 2 + 2);
 
             if (cmdarg) {
@@ -9263,7 +9269,7 @@ static void process_bop_count(conn *c, char *key, size_t nkey,
 #ifdef DETECT_LONG_REQUEST
     /* long request detection */
     if (detlongq.on_checking) {
-        if (access_count >= detlongq.base) {
+        if (access_count >= detlongq.standard) {
             char* cmdarg = malloc(MAX_BKEY_LENG * 2 + 2);
 
             if (cmdarg) {
@@ -9489,7 +9495,7 @@ static void process_bop_gbp(conn *c, char *key, size_t nkey, ENGINE_BTREE_ORDER 
 #ifdef DETECT_LONG_REQUEST
     /* long request detection */
     if (detlongq.on_checking) {
-        if (elem_count >= detlongq.base) {
+        if (elem_count >= detlongq.standard) {
             char* cmdarg = malloc(12);
 
             if (cmdarg) {
@@ -9810,7 +9816,7 @@ static void process_bop_delete(conn *c, char *key, size_t nkey,
 #ifdef DETECT_LONG_REQUEST
     /* long request detection */
     if (detlongq.on_checking) {
-        if (acc_count >= detlongq.base) {
+        if (acc_count >= detlongq.standard) {
             char* cmdarg = malloc(MAX_BKEY_LENG * 2 + 2);
 
             if (cmdarg) {
