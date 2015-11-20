@@ -647,7 +647,6 @@ struct detect_longq_key
 
 struct detect_longq_global {
     pthread_mutex_t lock;
-    bool on_checking;
     bool on_detecting;
     uint32_t standard;
     uint32_t longcount[DETECT_COMMAND_NUM];
