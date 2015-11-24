@@ -629,10 +629,10 @@ struct conn {
 
 #define DETECT_COMMAND_NUM           8     /* detectiong command count */
 #define DETECT_LONGQ_STANDARD_BASE   4000  /* basic detect standard */
-#define DETECT_LONGQ_SAVE_SIZE       20    /* save line size (key count) */
-#define DETECT_LONGQ_PER_BUFFER_SIZE 8000  /* 8 * KB */
+#define DETECT_INPUT_SIZE            400   /* the size of input(time, ip, command, argument) */
+#define DETECT_LONGQ_SAVE_CNT        20    /* save key count */
 #define DETECT_LONGQ_BUFFER_SIZE     65000 /* 65 * KB */
-#define DETECT_INPUT_SIZE            400   /* the size of input(time, ip, command, bool) */
+#define DETECT_LONGQ_PER_BUFFER_SIZE DETECT_LONGQ_SAVE_CNT * DETECT_INPUT_SIZE  /* 8 * KB */
 struct detect_longq_buffer
 {
     char *data;
