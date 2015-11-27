@@ -627,22 +627,19 @@ struct conn {
 #define LONGQ_COMMAND_BOP_COUNT      6
 #define LONGQ_COMMAND_BOP_GBP        7
 
-#define LONGQ_COMMAND_NUM            8     /* detectiong command count */
 #define LONGQ_STANDARD_BASE          4000  /* basic detect standard */
-#define LONGQ_INPUT_SIZE             400   /* the size of input(time, ip, command, argument) */
+
+#define LONGQ_COMMAND_NUM            8     /* detectiong command count */
+#define LONGQ_KEY_CHECK_JUMP         28    /* key string compare jump string size */
 #define LONGQ_SAVE_CNT               20    /* save key count */
+#define LONGQ_INPUT_SIZE             400   /* the size of input(time, ip, command, argument) */
 #define LONGQ_BUFFER_SIZE            65000 /* 65 * KB */
-#define LONGQ_PER_BUFFER_SIZE LONGQ_SAVE_CNT * LONGQ_INPUT_SIZE  /* 8 * KB */
+
 struct detect_longq_buffer
 {
-    char *data;
-    uint32_t offset;
-};
-
-struct detect_longq_key
-{
     char **data;
-    uint32_t count; /* long request command saved count */
+    uint32_t iplen[LONGQ_SAVE_CNT];
+    uint32_t count;
 };
 
 struct detect_longq_global {
@@ -651,7 +648,6 @@ struct detect_longq_global {
     uint32_t standard;
     uint32_t longcount[LONGQ_COMMAND_NUM];
     struct detect_longq_buffer *buffer;
-    struct detect_longq_key *key;
 };
 struct detect_longq_global detlongq;
 #endif
