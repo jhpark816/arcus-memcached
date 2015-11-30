@@ -7963,24 +7963,24 @@ static void detlongq_alloc_free()
 {
     int ii, jj;
 
+    if (detlongq.buffer == NULL) return;
+
     for(ii = 0; ii < LONGQ_COMMAND_NUM; ii++) {
-        for(jj = 0; jj < LONGQ_SAVE_CNT; jj++) {
-            if (detlongq.buffer[ii].data[jj] != NULL) {
-                free(detlongq.buffer[ii].data[jj]);
-            } else {
-                break;
-            }
-        }
         if (detlongq.buffer[ii].data != NULL) {
+            for(jj = 0; jj < LONGQ_SAVE_CNT; jj++) {
+                if (detlongq.buffer[ii].data[jj] != NULL) {
+                    free(detlongq.buffer[ii].data[jj]);
+                } else {
+                    break;
+                }
+            }
             free(detlongq.buffer[ii].data);
         } else {
             break;
         }
     }
 
-    if (detlongq.buffer != NULL) {
-        free(detlongq.buffer);
-    }
+    free(detlongq.buffer);
 }
 
 static int detlongq_init()
@@ -8037,8 +8037,8 @@ static int detlongq_start()
         for(ii = 0; ii < LONGQ_COMMAND_NUM; ii++) {
             for(jj = 0; jj < LONGQ_SAVE_CNT; jj++) {
                 memset(detlongq.buffer[ii].data[jj], 0, LONGQ_INPUT_SIZE);
+                detlongq.buffer[ii].iplen[jj] = 0;
             }
-            memset(&detlongq.buffer[ii].iplen, 0, LONGQ_SAVE_CNT);
             detlongq.buffer[ii].count = 0;
             detlongq.longcount[ii] = 0;
         }
