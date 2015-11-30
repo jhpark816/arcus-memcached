@@ -630,7 +630,7 @@ struct conn {
 #define LONGQ_STANDARD_BASE          4000  /* basic detect standard */
 
 #define LONGQ_COMMAND_NUM            8     /* detectiong command count */
-#define LONGQ_KEY_CHECK_JUMP         28    /* key string compare jump string size */
+#define LONGQ_KEY_CHECK_JUMP         28    /* key string compare jump string size (time:15, command:10, space:3)*/
 #define LONGQ_SAVE_CNT               20    /* save key count */
 #define LONGQ_INPUT_SIZE             400   /* the size of input(time, ip, command, argument) */
 #define LONGQ_BUFFER_SIZE            65000 /* 65 * KB */
