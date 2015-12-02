@@ -240,6 +240,10 @@ extern "C" {
 #define BKEY_NULL  255
 #define EFLAG_NULL 255
 
+#ifdef MAP_COLLECTION_SUPPORT
+#define MAX_FIELD_LENG 255
+#endif
+
     /* bkey type */
     typedef struct {
         unsigned char val[MAX_BKEY_LENG];

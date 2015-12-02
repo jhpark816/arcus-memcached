@@ -60,13 +60,23 @@ typedef struct _set_elem_item {
 
 #ifdef MAP_COLLECTION_SUPPORT
 /* map element */
+typedef struct _map_elem_item_fixed {
+    uint16_t refcount;
+    uint8_t  slabs_clsid;         /* which slab class we're in */
+    uint32_t hval;                /* hash value */
+    struct _map_elem_item *next;  /* hash chain next */
+    uint8_t nfield;              /**< The total size of the field (in bytes) */
+    uint16_t nbytes;              /**< The total size of the data (in bytes) */
+} map_elem_item_fixed;
+
 typedef struct _map_elem_item {
     uint16_t refcount;
     uint8_t  slabs_clsid;         /* which slab class we're in */
-    uint32_t hval;               /* hash value */
+    uint32_t hval;                /* hash value */
     struct _map_elem_item *next;  /* hash chain next */
-    uint32_t nbytes;              /**< The total size of the data (in bytes) */
-    char     value[1];            /**< the data itself */
+    uint8_t nfield;              /**< The total size of the field (in bytes) */
+    uint16_t nbytes;              /**< The total size of the data (in bytes) */
+    unsigned char data[1];        /* data: <field, value> */
 } map_elem_item;
 #endif
 
@@ -453,7 +463,7 @@ ENGINE_ERROR_CODE map_struct_create(struct default_engine *engine,
                                     const char *key, const size_t nkey,
                                     item_attr *attrp, const void *cookie);
 
-map_elem_item *map_elem_alloc(struct default_engine *engine,
+map_elem_item *map_elem_alloc(struct default_engine *engine, const int nfield,
                               const int nbytes, const void *cookie);
 
 void map_elem_release(struct default_engine *engine,
@@ -472,8 +482,8 @@ ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
                                   bool *dropped);
 
 ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
-                               const char *key, const size_t nkey, const uint32_t count,
-                               const bool delete, const bool drop_if_empty,
+                               const char *key, const size_t nkey, const char *field,
+                               const size_t nfield, const bool delete, const bool drop_if_empty,
                                map_elem_item **elem_array, uint32_t *elem_count,
                                uint32_t *flags, bool *dropped);
 #endif

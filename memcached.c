@@ -1492,6 +1492,26 @@ static void process_sop_exist_complete(conn *c) {
 }
 
 #ifdef MAP_COLLECTION_SUPPORT
+static int make_mop_elem_response(char *bufptr, eitem_info *info)
+{
+    char *tmpptr = bufptr;
+
+    /* field */
+    if (info->nscore > 0) {
+        memcpy(tmpptr, info->score, info->nscore);
+        tmpptr += (int)info->nscore;
+    } else {
+        sprintf(tmpptr, "%s", "NOT_FIELD");
+        tmpptr += strlen(tmpptr);
+    }
+    
+    /* nbytes */
+    sprintf(tmpptr, " %u ", info->nbytes-2);
+    tmpptr += strlen(tmpptr);
+
+    return (int)(tmpptr - bufptr);
+}
+
 static void process_mop_insert_complete(conn *c) {
     assert(c->coll_op == OPERATION_MOP_INSERT);
     assert(c->coll_eitem != NULL);
@@ -4381,6 +4401,7 @@ static void process_bin_mop_prepare_nread(conn *c) {
            c->cmd == PROTOCOL_BINARY_CMD_MOP_DELETE);
     char *key = binary_get_key(c);
     uint32_t nkey = c->binary_header.request.keylen;
+    uint32_t flen = 0;
     uint32_t vlen = 0;
 
     if (nkey + c->binary_header.request.extlen <= c->binary_header.request.bodylen) {
@@ -4410,7 +4431,7 @@ static void process_bin_mop_prepare_nread(conn *c) {
         ret = ENGINE_E2BIG;
     } else {
         if (c->cmd == PROTOCOL_BINARY_CMD_MOP_INSERT) {
-            ret = mc_engine.v1->map_elem_alloc(mc_engine.v0, c, key, nkey, vlen+2, &elem);
+            ret = mc_engine.v1->map_elem_alloc(mc_engine.v0, c, key, nkey, flen, vlen+2, &elem);
         } else { /* PROTOCOL_BINARY_CMD_SOP_DELETE */
             if ((elem = (eitem *)malloc(sizeof(elem_value) + vlen + 2)) == NULL)
                 ret = ENGINE_ENOMEM;
@@ -4609,7 +4630,7 @@ static void process_bin_mop_nread_complete(conn *c) {
     else if (c->cmd == PROTOCOL_BINARY_CMD_MOP_DELETE)
         process_bin_mop_delete_complete(c);
 }
-
+#ifdef MAP_1
 static void process_bin_mop_get(conn *c) {
     assert(c != NULL);
     assert(c->ewouldblock == false);
@@ -4631,7 +4652,7 @@ static void process_bin_mop_get(conn *c) {
     }
 
     eitem  **elem_array = NULL;
-    uint32_t elem_count;
+    uint32_t elem_count = 0;
     uint32_t flags, i;
     bool     dropped;
     int      need_size;
@@ -4739,6 +4760,7 @@ static void process_bin_mop_get(conn *c) {
         free((void *)elem_array);
     }
 }
+#endif
 #endif
 
 static void process_bin_bop_create(conn *c) {
@@ -5879,11 +5901,13 @@ static void process_bin_getattr(conn *c) {
         rsp->message.body.flags      = attr_data.flags;
         rsp->message.body.expiretime = htonl(attr_data.exptime);
         rsp->message.body.type       = attr_data.type;
+#ifdef MAP_COLLECTION_SUPPROT
         if (attr_data.type == ITEM_TYPE_LIST || attr_data.type == ITEM_TYPE_SET ||
-#ifdef MAP_COLLECTION_SUPPORT
-            attr_data.type == ITEM_TYPE_MAP ||
-#endif
+            attr_data.type == ITEM_TYPE_MAP || attr_data.type == ITEM_TYPE_BTREE) {
+#else
+        if (attr_data.type == ITEM_TYPE_LIST || attr_data.type == ITEM_TYPE_SET ||
             attr_data.type == ITEM_TYPE_BTREE) {
+#endif
             rsp->message.body.count      = htonl(attr_data.count);
             rsp->message.body.maxcount   = htonl(attr_data.maxcount);
             rsp->message.body.ovflaction = attr_data.ovflaction;
@@ -6886,9 +6910,9 @@ static void complete_nread_binary(conn *c) {
     case bin_reading_mop_nread_complete:
         process_bin_mop_nread_complete(c);
         break;
-    case bin_reading_mop_get:
+/*    case bin_reading_mop_get:
         process_bin_mop_get(c);
-        break;
+        break;*/
 #endif
     case bin_reading_bop_create:
         process_bin_bop_create(c);
@@ -8679,9 +8703,6 @@ static inline int get_coll_create_attr_from_tokens(token_t *tokens, const int nt
     } else {
         attrp->maxcount = 0; /* default value */
     }
-#ifdef MAP_COLLECTION_SUPPORT
-    if (coll_type == ITEM_TYPE_MAP) attrp->maxcount = 1;
-#endif
     attrp->ovflaction = 0; /* undefined : will be set to default later */
     attrp->readable   = 1; /* readable = on */
 
@@ -9480,12 +9501,11 @@ static void process_sop_command(conn *c, token_t *tokens, const size_t ntokens)
 }
 
 #ifdef MAP_COLLECTION_SUPPORT
-static void process_mop_get(conn *c, char *key, size_t nkey, uint32_t count,
+static void process_mop_get(conn *c, char *key, size_t nkey, char *field, size_t flen,
                             bool delete, bool drop_if_empty)
 {
     eitem  **elem_array = NULL;
     uint32_t elem_count;
-    uint32_t req_count = count;
     uint32_t flags, i;
     bool     dropped;
     int      need_size;
@@ -9494,14 +9514,13 @@ static void process_mop_get(conn *c, char *key, size_t nkey, uint32_t count,
 
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
-    if (req_count <= 0 || req_count > MAX_MAP_SIZE) req_count = MAX_MAP_SIZE;
-    need_size = req_count * sizeof(eitem*);
+    need_size = MAX_MAP_SIZE * sizeof(eitem*);
     if ((elem_array = (eitem **)malloc(need_size)) == NULL) {
         out_string(c, "SERVER_ERROR out of memory");
         return;
     }
 
-    ret = mc_engine.v1->map_elem_get(mc_engine.v0, c, key, nkey, req_count,
+    ret = mc_engine.v1->map_elem_get(mc_engine.v0, c, key, nkey, field, flen,
                                      delete, drop_if_empty, elem_array, &elem_count,
                                      &flags, &dropped, 0);
     if (ret == ENGINE_EWOULDBLOCK) {
@@ -9519,10 +9538,11 @@ static void process_mop_get(conn *c, char *key, size_t nkey, uint32_t count,
         eitem_info info;
         char *respbuf; /* response string buffer */
         char *respptr;
+        int   resplen;
 
         do {
             need_size = ((2*lenstr_size) + 30) /* response head and tail size */
-                      + (elem_count * (lenstr_size+2)); /* response body size */
+                      + (elem_count * ((MAX_FIELD_LENG*2+2) + (lenstr_size+2))); /* response body size */
             if ((respbuf = (char*)malloc(need_size)) == NULL) {
                 ret = ENGINE_ENOMEM; break;
             }
@@ -9536,8 +9556,8 @@ static void process_mop_get(conn *c, char *key, size_t nkey, uint32_t count,
 
             for (i = 0; i < elem_count; i++) {
                 mc_engine.v1->get_map_elem_info(mc_engine.v0, c, elem_array[i], &info);
-                sprintf(respptr, "%u ", info.nbytes-2);
-                if ((add_iov(c, respptr, strlen(respptr)) != 0) ||
+                resplen = make_mop_elem_response(respptr, &info);
+                if ((add_iov(c, respptr, resplen) != 0) ||
                     (add_iov(c, info.value, info.nbytes) != 0)) {
                     ret = ENGINE_ENOMEM; break;
                 }
@@ -9595,7 +9615,7 @@ static void process_mop_get(conn *c, char *key, size_t nkey, uint32_t count,
     }
 }
 
-static void process_mop_prepare_nread(conn *c, int cmd, size_t vlen, char *key, size_t nkey) {
+static void process_mop_prepare_nread(conn *c, int cmd, char *key, size_t nkey, char *field, size_t flen, size_t vlen) {
     eitem *elem = NULL;
 
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
@@ -9603,7 +9623,7 @@ static void process_mop_prepare_nread(conn *c, int cmd, size_t vlen, char *key, 
         ret = ENGINE_E2BIG;
     } else {
         if (cmd == (int)OPERATION_MOP_INSERT) {
-            ret = mc_engine.v1->map_elem_alloc(mc_engine.v0, c, key, nkey, vlen, &elem);
+            ret = mc_engine.v1->map_elem_alloc(mc_engine.v0, c, key, nkey, flen, vlen, &elem);
         } else { /* OPERATION_MOP_DELETE */
             if ((elem = (eitem *)malloc(sizeof(elem_value) + vlen)) == NULL)
                 ret = ENGINE_ENOMEM;
@@ -9624,6 +9644,7 @@ static void process_mop_prepare_nread(conn *c, int cmd, size_t vlen, char *key, 
         if (cmd == (int)OPERATION_MOP_INSERT) {
             eitem_info info;
             mc_engine.v1->get_map_elem_info(mc_engine.v0, c, elem, &info);
+            memcpy((void*)info.score, field, info.nscore);
             c->ritem   = (char *)info.value;
             c->rlbytes = vlen;
         } else {
@@ -9698,19 +9719,26 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
-    if ((ntokens >= 5 && ntokens <= 12) && (strcmp(subcommand,"insert") == 0))
+    if ((ntokens >= 6 && ntokens <= 14) && (strcmp(subcommand,"insert") == 0))
     {
+        char *field = tokens[MOP_KEY_TOKEN+1].value;
+        int32_t flen = tokens[MOP_KEY_TOKEN+1].length;
         int32_t vlen;
 
         set_pipe_noreply_maybe(c, tokens, ntokens);
 
-        if ((! safe_strtol(tokens[MOP_KEY_TOKEN+1].value, &vlen)) || (vlen < 0)) {
+        if ((! field) || (flen > MAX_FIELD_LENG) || (flen < 0)) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+
+        if ((! safe_strtol(tokens[MOP_KEY_TOKEN+2].value, &vlen)) || (vlen < 0) || (flen < 0)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
         vlen += 2;
 
-        int read_ntokens = MOP_KEY_TOKEN + 2;
+        int read_ntokens = MOP_KEY_TOKEN + 3;
         int post_ntokens = 1 + (c->noreply ? 1 : 0);
         int rest_ntokens = ntokens - read_ntokens - post_ntokens;
 
@@ -9735,7 +9763,7 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         }
 
         if (check_and_handle_pipe_state(c, vlen)) {
-            process_mop_prepare_nread(c, (int)OPERATION_MOP_INSERT, vlen, key, nkey);
+            process_mop_prepare_nread(c, (int)OPERATION_MOP_INSERT, key, nkey, field, flen, vlen);
         }
     }
     else if ((ntokens >= 7 && ntokens <= 10) && (strcmp(subcommand, "create") == 0))
@@ -9755,8 +9783,10 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
 
         process_mop_create(c, key, nkey, c->coll_attrp);
     }
-    else if ((ntokens >= 5 && ntokens <= 7) && (strcmp(subcommand, "delete") == 0))
+    else if ((ntokens >= 6 && ntokens <= 8) && (strcmp(subcommand, "delete") == 0))
     {
+        char *field = tokens[MOP_KEY_TOKEN+1].value;
+        int32_t flen = tokens[MOP_KEY_TOKEN+1].length;
         int32_t vlen;
 
         set_pipe_noreply_maybe(c, tokens, ntokens);
@@ -9767,13 +9797,18 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
 
         c->coll_drop = false;
 
-        if (! safe_strtol(tokens[MOP_KEY_TOKEN+1].value, &vlen) || vlen < 0) {
+        if ((! field) || (flen > MAX_FIELD_LENG) || (flen < 0)) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+
+        if (! safe_strtol(tokens[MOP_KEY_TOKEN+2].value, &vlen) || vlen < 0) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
         vlen += 2;
 
-        if ((ntokens == 6 && c->noreply == 0) || (ntokens == 7)) {
+        if ((ntokens == 7 && c->noreply == 0) || (ntokens == 8)) {
             if (strcmp(tokens[MOP_KEY_TOKEN+2].value, "drop")==0) {
                 c->coll_drop = true;
             } else {
@@ -9783,16 +9818,17 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         }
 
         if (check_and_handle_pipe_state(c, vlen)) {
-            process_mop_prepare_nread(c, (int)OPERATION_MOP_DELETE, vlen, key, nkey);
+            process_mop_prepare_nread(c, (int)OPERATION_MOP_DELETE, key, nkey, field, flen, vlen);
         }
     }
     else if ((ntokens==5 || ntokens==6) && (strcmp(subcommand, "get") == 0))
     {
+        char *field = tokens[MOP_KEY_TOKEN+1].value;
+        int32_t flen = tokens[MOP_KEY_TOKEN+1].length;
         bool delete = false;
         bool drop_if_empty = false;
-        uint32_t count = 0;
 
-        if (! safe_strtoul(tokens[MOP_KEY_TOKEN+1].value, &count)) {
+        if ((! field) || (flen > MAX_FIELD_LENG) || (flen < 0)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -9809,7 +9845,7 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
             }
         }
 
-        process_mop_get(c, key, nkey, count, delete, drop_if_empty);
+        process_mop_get(c, key, nkey, field, flen, delete, drop_if_empty);
     }
     else if (ntokens >= 5 && (strcmp(subcommand, "mget") == 0))
     {
@@ -9836,7 +9872,7 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         }
 
         for(ii = 0; ii < column_count; ii++) {
-            char *mkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].value;
+ /*           char *mkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].value;
             size_t mnkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].length;
             uint32_t mcount = 0;
 
@@ -9845,6 +9881,7 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
                 return;
             }
             process_mop_get(c, mkey, mnkey, mcount, delete, drop_if_empty);
+*/
         }
     }
     else

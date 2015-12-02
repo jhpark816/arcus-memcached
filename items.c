@@ -1421,7 +1421,7 @@ static int32_t do_coll_real_maxcount(hash_item *it, int32_t maxcount)
             real_maxcount = default_btree_size;
     }
 #ifdef MAP_COLLECTION_SUPPORT
-    else if (IS_SET_ITEM(it)) {
+    else if (IS_MAP_ITEM(it)) {
         if (maxcount < 0 || maxcount > max_map_size)
             real_maxcount = max_map_size;
         else if (maxcount == 0)
@@ -1455,7 +1455,7 @@ static inline uint32_t do_btree_elem_ntotal(btree_elem_item *elem)
 #ifdef MAP_COLLECTION_SUPPORT
 static inline uint32_t do_map_elem_ntotal(map_elem_item *elem)
 {
-    return sizeof(map_elem_item) + elem->nbytes;
+    return sizeof(map_elem_item_fixed) + elem->nfield + elem->nbytes;
 }
 #endif
 
@@ -2311,17 +2311,18 @@ static void do_map_node_free(struct default_engine *engine, map_hash_node *node)
     do_mem_slot_free(engine, node, sizeof(map_hash_node));
 }
 
-static map_elem_item *do_map_elem_alloc(struct default_engine *engine,
+static map_elem_item *do_map_elem_alloc(struct default_engine *engine, const int nfield,
                                         const int nbytes, const void *cookie)
 {
-    size_t ntotal = sizeof(map_elem_item) + nbytes;
+    size_t ntotal = sizeof(map_elem_item_fixed) + nfield + nbytes;
 
     map_elem_item *elem = do_item_alloc_internal(engine, ntotal, LRU_CLSID_FOR_SMALL, cookie);
     if (elem != NULL) {
         assert(elem->slabs_clsid == 0);
         elem->slabs_clsid = slabs_clsid(engine, ntotal);
         elem->refcount    = 1;
-        elem->nbytes      = nbytes;
+        elem->nfield      = (uint8_t)nfield;
+        elem->nbytes      = (uint16_t)nbytes;
         elem->next = (map_elem_item *)ADDR_MEANS_UNLINKED; /* Unliked state */
     }
     return elem;
@@ -2445,7 +2446,7 @@ static ENGINE_ERROR_CODE do_map_elem_link(struct default_engine *engine,
     int hidx;
 
     /* map hash value */
-    elem->hval = genhash_string_hash(elem->value, elem->nbytes);
+    elem->hval = genhash_string_hash(elem->data, elem->nbytes);
 
     while (node != NULL) {
         hidx = MAP_GET_HASHIDX(elem->hval, node->hdepth);
@@ -2456,8 +2457,8 @@ static ENGINE_ERROR_CODE do_map_elem_link(struct default_engine *engine,
     assert(node != NULL);
 
     for (find = node->htab[hidx]; find != NULL; find = find->next) {
-        if (map_hash_eq(elem->hval, elem->value, elem->nbytes,
-                        find->hval, find->value, find->nbytes))
+        if (map_hash_eq(elem->hval, elem->data, elem->nbytes,
+                        find->hval, find->data, find->nbytes))
             break;
     }
 
@@ -2538,7 +2539,7 @@ static ENGINE_ERROR_CODE do_map_elem_traverse_delete(struct default_engine *engi
             map_elem_item *prev = NULL;
             map_elem_item *elem = node->htab[hidx];
             while (elem != NULL) {
-                if (map_hash_eq(hval, val, vlen, elem->hval, elem->value, elem->nbytes))
+                if (map_hash_eq(hval, val, vlen, elem->hval, elem->data, elem->nbytes))
                     break;
                 prev = elem;
                 elem = elem->next;
@@ -2576,19 +2577,19 @@ static ENGINE_ERROR_CODE do_map_elem_delete_with_value(struct default_engine *en
 
 static int do_map_elem_traverse_dfs(struct default_engine *engine,
                                     map_meta_info *info, map_hash_node *node,
-                                    const uint32_t count, const bool delete,
+                                    const char* field, const size_t nfield, const bool delete,
                                     map_elem_item **elem_array)
 {
-    int hidx;
-    int rcnt = 0; /* request count */
+    bool find_check = false;
+    int hidx = 0;
     int fcnt, tot_fcnt = 0; /* found count */
 
+/*************************** 수정 필요 **************************/
     if (node->tot_hash_cnt > 0) {
         for (hidx = 0; hidx < MAP_HASHTAB_SIZE; hidx++) {
             if (node->hcnt[hidx] == -1) {
                 map_hash_node *child_node = (map_hash_node *)node->htab[hidx];
-                if (count > 0) rcnt = count - tot_fcnt;
-                fcnt = do_map_elem_traverse_dfs(engine, info, child_node, rcnt, delete,
+                fcnt = do_map_elem_traverse_dfs(engine, info, child_node, field, nfield, delete,
                                             (elem_array==NULL ? NULL : &elem_array[tot_fcnt]));
                 if (delete) {
                     if  (child_node->tot_hash_cnt == 0 &&
@@ -2597,31 +2598,38 @@ static int do_map_elem_traverse_dfs(struct default_engine *engine,
                      }
                 }
                 tot_fcnt += fcnt;
-                if (count > 0 && tot_fcnt >= count)
-                    return tot_fcnt;
             }
         }
     }
-    assert(count == 0 || tot_fcnt < count);
+/****************************************************************/
 
     for (hidx = 0; hidx < MAP_HASHTAB_SIZE; hidx++) {
         if (node->hcnt[hidx] > 0) {
             fcnt = 0;
+            map_elem_item *prev = NULL;
             map_elem_item *elem = node->htab[hidx];
             while (elem != NULL) {
-                if (elem_array) {
-                    elem->refcount++;
-                    elem_array[tot_fcnt+fcnt] = elem;
-                }
-                fcnt++;
-                if (delete) do_map_elem_unlink(engine, info, node, hidx, NULL, elem,
+                if ((strncmp(field, (const char*)elem->data, nfield) == 0) && (nfield == elem->nfield)) {
+                    find_check = true;
+                    if (elem_array) {
+                        elem->refcount++;
+                        elem_array[tot_fcnt+fcnt] = elem;
+                    }
+                    fcnt++;
+
+                    if (delete) {
+                       do_map_elem_unlink(engine, info, node, hidx, prev, elem,
                                                (elem_array==NULL ? ELEM_DELETE_COLL
                                                                  : ELEM_DELETE_NORMAL));
-                if (count > 0 && (tot_fcnt+fcnt) >= count) break;
-                elem = (delete ? node->htab[hidx] : elem->next);
+                    }
+                    break;
+                } else {
+                    prev = elem;
+                    elem = elem->next;
+                }
             }
             tot_fcnt += fcnt;
-            if (count > 0 && tot_fcnt >= count) break;
+            if (find_check) break;
         }
     }
     return tot_fcnt;
@@ -2634,7 +2642,7 @@ static uint32_t do_map_elem_delete(struct default_engine *engine,
     assert(cause == ELEM_DELETE_COLL);
     uint32_t fcnt = 0;
     if (info->root != NULL) {
-        fcnt = do_map_elem_traverse_dfs(engine, info, info->root, count, true, NULL);
+//        fant = do_map_elem_traverse_dfs(engine, info, info->root, count, true, NULL);
         if (info->root->tot_hash_cnt == 0 && info->root->tot_elem_cnt == 0) {
             do_map_node_unlink(engine, info, NULL, 0);
         }
@@ -2643,12 +2651,12 @@ static uint32_t do_map_elem_delete(struct default_engine *engine,
 }
 
 static uint32_t do_map_elem_get(struct default_engine *engine,
-                                map_meta_info *info, const uint32_t count, const bool delete,
+								map_meta_info *info, const char* field, const size_t nfield, const bool delete,
                                 map_elem_item **elem_array)
 {
     uint32_t fcnt = 0;
     if (info->root != NULL) {
-        fcnt = do_map_elem_traverse_dfs(engine, info, info->root, count, delete, elem_array);
+        fcnt = do_map_elem_traverse_dfs(engine, info, info->root, field, nfield, delete, elem_array);
         if (delete && info->root->tot_hash_cnt == 0 && info->root->tot_elem_cnt == 0) {
             do_map_node_unlink(engine, info, NULL, 0);
         }
@@ -6580,11 +6588,11 @@ ENGINE_ERROR_CODE map_struct_create(struct default_engine *engine,
     return ret;
 }
 
-map_elem_item *map_elem_alloc(struct default_engine *engine, const int nbytes, const void *cookie)
+map_elem_item *map_elem_alloc(struct default_engine *engine, const int nfield, const int nbytes, const void *cookie)
 {
     map_elem_item *elem;
     pthread_mutex_lock(&engine->cache_lock);
-    elem = do_map_elem_alloc(engine, nbytes, cookie);
+    elem = do_map_elem_alloc(engine, nfield, nbytes, cookie);
     pthread_mutex_unlock(&engine->cache_lock);
     return elem;
 }
@@ -6667,8 +6675,8 @@ ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
 }
 
 ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
-                               const char *key, const size_t nkey, const uint32_t count,
-                               const bool delete, const bool drop_if_empty,
+                               const char *key, const size_t nkey, const char *field,
+                               const size_t nfield, const bool delete, const bool drop_if_empty,
                                map_elem_item **elem_array, uint32_t *elem_count,
                                uint32_t *flags, bool *dropped)
 {
@@ -6684,7 +6692,7 @@ ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
             if ((info->mflags & COLL_META_FLAG_READABLE) == 0) {
                 ret = ENGINE_UNREADABLE; break;
             }
-            *elem_count = do_map_elem_get(engine, info, count, delete, elem_array);
+            *elem_count = do_map_elem_get(engine, info, field, nfield, delete, elem_array);
             if (*elem_count > 0) {
                 if (info->ccnt == 0 && drop_if_empty) {
                     assert(delete == true);

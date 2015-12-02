@@ -480,6 +480,7 @@ extern "C" {
                                             const void* cookie,
                                             const void* key,
                                             const int nkey,
+                                            const size_t nfield,
                                             const size_t nbytes,
                                             eitem** eitem);
         void (*map_elem_release)(ENGINE_HANDLE* handle,
@@ -507,7 +508,8 @@ extern "C" {
                                           const void* cookie,
                                           const void* key,
                                           const int nkey,
-                                          const uint32_t count,
+                                          const void* field,
+                                          const int nfield,
                                           const bool delete,
                                           const bool drop_if_empty,
                                           eitem** eitem,
