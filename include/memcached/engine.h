@@ -499,8 +499,7 @@ extern "C" {
                                              const void* cookie,
                                              const void* key,
                                              const int nkey,
-                                             const void* value,
-                                             const int nbytes,
+                                             eitem *eitem,
                                              const bool drop_if_empty,
                                              bool *dropped,
                                              uint16_t vbucket);

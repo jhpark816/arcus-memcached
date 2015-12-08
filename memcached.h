@@ -466,6 +466,15 @@ typedef struct {
     char       value[1];  /* the data itself */
 } elem_value;
 
+#ifdef MAP_COLLECTION_SUPPORT
+/* collection map element value */
+typedef struct {
+    uint8_t    nfield;      /* The total size of the field (in butes) */
+    uint16_t   nbytes;      /* The total size of the data (in bytes) */
+    unsigned char data[1];  /* data: <field, value> */
+} elem_map_value;
+#endif
+
 /**
  * The structure representing a connection into memcached.
  */

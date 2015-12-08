@@ -477,7 +477,7 @@ ENGINE_ERROR_CODE map_elem_insert(struct default_engine *engine,
 
 ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
                                   const char *key, const size_t nkey,
-                                  const char *value, const size_t nbytes,
+                                  map_elem_item *elem,
                                   const bool drop_if_empty,
                                   bool *dropped);
 

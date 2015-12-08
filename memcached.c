@@ -1521,6 +1521,9 @@ static void process_mop_insert_complete(conn *c) {
     mc_engine.v1->get_map_elem_info(mc_engine.v0, c, elem, &info);
 
     if (strncmp((char*)info.value + info.nbytes - 2, "\r\n", 2) != 0) {
+        // release the map element
+        mc_engine.v1->map_elem_release(mc_engine.v0, c, &c->coll_eitem, 1);
+        c->coll_eitem = NULL;
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
         bool created;
@@ -1555,6 +1558,7 @@ static void process_mop_insert_complete(conn *c) {
             STATS_NOKEY(c, cmd_mop_insert);
             if (ret == ENGINE_EBADTYPE) out_string(c, "TYPE_MISMATCH");
             else if (ret == ENGINE_EOVERFLOW) out_string(c, "OVERFLOWED");
+            else if (ret == ENGINE_ELEM_EEXISTS) out_string(c, "ELEMENT_EXISTS");
             else if (ret == ENGINE_PREFIX_ENAME) out_string(c, "CLIENT_ERROR invalid prefix name");
             else if (ret == ENGINE_ENOMEM) out_string(c, "SERVER_ERROR out of memory");
             else handle_unexpected_errorcode_ascii(c, ret);
@@ -1568,18 +1572,20 @@ static void process_mop_insert_complete(conn *c) {
 static void process_mop_delete_complete(conn *c) {
     assert(c->coll_op == OPERATION_MOP_DELETE);
     assert(c->coll_eitem != NULL);
-    elem_value *elem = (elem_value *)c->coll_eitem;
+    eitem *elem = (eitem *)c->coll_eitem;
 
-    if (strncmp(&elem->value[elem->nbytes-2], "\r\n", 2) != 0) {
+    eitem_info info;
+    mc_engine.v1->get_map_elem_info(mc_engine.v0, c, elem, &info);
+
+    if (strncmp((char*)info.value + info.nbytes - 2, "\r\n", 2) != 0) {
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
         bool dropped;
         ENGINE_ERROR_CODE ret;
 
         ret = mc_engine.v1->map_elem_delete(mc_engine.v0, c,
-                                            c->coll_key, c->coll_nkey,
-                                            elem->value, elem->nbytes, c->coll_drop,
-                                            &dropped, 0);
+                                            c->coll_key, c->coll_nkey, elem,
+                                            c->coll_drop, &dropped, 0);
         if (ret == ENGINE_EWOULDBLOCK) {
             c->ewouldblock = true;
             ret = ENGINE_SUCCESS;
@@ -1614,7 +1620,7 @@ static void process_mop_delete_complete(conn *c) {
         }
     }
 
-    free(c->coll_eitem);
+    mc_engine.v1->map_elem_release(mc_engine.v0, c, &c->coll_eitem, 1);
     c->coll_eitem = NULL;
 }
 #endif
@@ -1758,6 +1764,8 @@ static void process_bop_update_complete(conn *c)
     if (c->coll_eitem != NULL) {
         elem_value *elem = (elem_value *)c->coll_eitem;
         if (strncmp(&elem->value[elem->nbytes-2], "\r\n", 2) != 0) {
+            mc_engine.v1->map_elem_release(mc_engine.v0, c, &c->coll_eitem, 1);
+            c->coll_eitem = NULL;
             out_string(c, "CLIENT_ERROR bad data chunk");
         }
         new_value  = elem->value;
@@ -4565,7 +4573,7 @@ static void process_bin_mop_insert_complete(conn *c) {
     mc_engine.v1->map_elem_release(mc_engine.v0, c, &c->coll_eitem, 1);
     c->coll_eitem = NULL;
 }
-
+#ifdef MAP_1
 static void process_bin_mop_delete_complete(conn *c) {
     assert(c->coll_eitem != NULL);
 
@@ -4620,15 +4628,17 @@ static void process_bin_mop_delete_complete(conn *c) {
     free(c->coll_eitem);
     c->coll_eitem = NULL;
 }
-
+#endif
 static void process_bin_mop_nread_complete(conn *c) {
     //protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
     assert(c != NULL);
 
     if (c->cmd == PROTOCOL_BINARY_CMD_MOP_INSERT)
         process_bin_mop_insert_complete(c);
+#ifdef MAP_1
     else if (c->cmd == PROTOCOL_BINARY_CMD_MOP_DELETE)
         process_bin_mop_delete_complete(c);
+#endif
 }
 #ifdef MAP_1
 static void process_bin_mop_get(conn *c) {
@@ -9622,16 +9632,21 @@ static void process_mop_prepare_nread(conn *c, int cmd, char *key, size_t nkey, 
     if (vlen > MAX_ELEMENT_BYTES) {
         ret = ENGINE_E2BIG;
     } else {
+        ret = mc_engine.v1->map_elem_alloc(mc_engine.v0, c, key, nkey, flen, vlen, &elem);
+    }
+#ifdef MAP_1
         if (cmd == (int)OPERATION_MOP_INSERT) {
             ret = mc_engine.v1->map_elem_alloc(mc_engine.v0, c, key, nkey, flen, vlen, &elem);
         } else { /* OPERATION_MOP_DELETE */
-            if ((elem = (eitem *)malloc(sizeof(elem_value) + vlen)) == NULL)
+            if ((elem = (eitem *)malloc(sizeof(elem_map_value) + flen + vlen)) == NULL)
                 ret = ENGINE_ENOMEM;
-            else
-                ((elem_value*)elem)->nbytes = vlen;
+            else {
+                ((elem_map_value*)elem)->nfield = flen;
+                ((elem_map_value*)elem)->nbytes = vlen;
+            }
         }
     }
-
+#endif
     if (settings.detail_enabled && ret != ENGINE_SUCCESS) {
         if (cmd == (int)OPERATION_MOP_INSERT)
             stats_prefix_record_mop_insert(key, nkey, false);
@@ -9641,6 +9656,7 @@ static void process_mop_prepare_nread(conn *c, int cmd, char *key, size_t nkey, 
 
     switch (ret) {
     case ENGINE_SUCCESS:
+#ifdef MAP_1
         if (cmd == (int)OPERATION_MOP_INSERT) {
             eitem_info info;
             mc_engine.v1->get_map_elem_info(mc_engine.v0, c, elem, &info);
@@ -9651,6 +9667,13 @@ static void process_mop_prepare_nread(conn *c, int cmd, char *key, size_t nkey, 
             c->ritem   = ((elem_value *)elem)->value;
             c->rlbytes = vlen;
         }
+#endif
+        {
+        eitem_info info;
+        mc_engine.v1->get_map_elem_info(mc_engine.v0, c, elem, &info);
+        memcpy((void*)info.score, field, info.nscore);
+        c->ritem   = (char *)info.value;
+        c->rlbytes = vlen;
         c->coll_eitem  = (void *)elem;
         c->coll_ecount = 1;
         c->coll_op     = cmd;
@@ -9658,6 +9681,7 @@ static void process_mop_prepare_nread(conn *c, int cmd, char *key, size_t nkey, 
         c->coll_nkey   = nkey;
         conn_set_state(c, conn_nread);
         break;
+        }
     case ENGINE_DISCONNECT:
         c->state = conn_closing;
         break;

@@ -2446,7 +2446,7 @@ static ENGINE_ERROR_CODE do_map_elem_link(struct default_engine *engine,
     int hidx;
 
     /* map hash value */
-    elem->hval = genhash_string_hash(elem->data, elem->nbytes);
+    elem->hval = genhash_string_hash(elem->data, elem->nfield);
 
     while (node != NULL) {
         hidx = MAP_GET_HASHIDX(elem->hval, node->hdepth);
@@ -2457,8 +2457,8 @@ static ENGINE_ERROR_CODE do_map_elem_link(struct default_engine *engine,
     assert(node != NULL);
 
     for (find = node->htab[hidx]; find != NULL; find = find->next) {
-        if (map_hash_eq(elem->hval, elem->data, elem->nbytes,
-                        find->hval, find->data, find->nbytes))
+        if (map_hash_eq(elem->hval, elem->data, elem->nfield,
+                        find->hval, find->data, find->nfield))
             break;
     }
 
@@ -2556,14 +2556,14 @@ static ENGINE_ERROR_CODE do_map_elem_traverse_delete(struct default_engine *engi
 
 static ENGINE_ERROR_CODE do_map_elem_delete_with_value(struct default_engine *engine,
                                                        map_meta_info *info,
-                                                       const char *val, const int vlen,
+                                                       map_elem_item *elem,
                                                        enum elem_delete_cause cause)
 {
     assert(cause == ELEM_DELETE_NORMAL);
     ENGINE_ERROR_CODE ret;
     if (info->root != NULL) {
-        int hval = genhash_string_hash(val, vlen);
-        ret = do_map_elem_traverse_delete(engine, info, info->root, hval, val, vlen);
+        int hval = genhash_string_hash(elem->data, elem->nfield);
+        ret = do_map_elem_traverse_delete(engine, info, info->root, hval, (const char*)elem->data, elem->nbytes);
         if (ret == ENGINE_SUCCESS) {
             if (info->root->tot_hash_cnt == 0 && info->root->tot_elem_cnt == 0) {
                 do_map_node_unlink(engine, info, NULL, 0);
@@ -2582,30 +2582,28 @@ static int do_map_elem_traverse_dfs(struct default_engine *engine,
 {
     bool find_check = false;
     int hidx = 0;
-    int fcnt, tot_fcnt = 0; /* found count */
+    int array_cnt, tot_acnt = 0; /* array count */
 
-/*************************** 수정 필요 **************************/
     if (node->tot_hash_cnt > 0) {
         for (hidx = 0; hidx < MAP_HASHTAB_SIZE; hidx++) {
             if (node->hcnt[hidx] == -1) {
                 map_hash_node *child_node = (map_hash_node *)node->htab[hidx];
-                fcnt = do_map_elem_traverse_dfs(engine, info, child_node, field, nfield, delete,
-                                            (elem_array==NULL ? NULL : &elem_array[tot_fcnt]));
+                array_cnt = do_map_elem_traverse_dfs(engine, info, child_node, field, nfield, delete,
+                                            (elem_array==NULL ? NULL : &elem_array[tot_acnt]));
                 if (delete) {
                     if  (child_node->tot_hash_cnt == 0 &&
                          child_node->tot_elem_cnt < (MAP_MAX_HASHCHAIN_SIZE/2)) {
                          do_map_node_unlink(engine, info, node, hidx);
                      }
                 }
-                tot_fcnt += fcnt;
+                tot_acnt += array_cnt;
             }
         }
     }
-/****************************************************************/
 
     for (hidx = 0; hidx < MAP_HASHTAB_SIZE; hidx++) {
         if (node->hcnt[hidx] > 0) {
-            fcnt = 0;
+            array_cnt = 0;
             map_elem_item *prev = NULL;
             map_elem_item *elem = node->htab[hidx];
             while (elem != NULL) {
@@ -2613,9 +2611,9 @@ static int do_map_elem_traverse_dfs(struct default_engine *engine,
                     find_check = true;
                     if (elem_array) {
                         elem->refcount++;
-                        elem_array[tot_fcnt+fcnt] = elem;
+                        elem_array[tot_acnt+array_cnt] = elem;
                     }
-                    fcnt++;
+                    array_cnt++;
 
                     if (delete) {
                        do_map_elem_unlink(engine, info, node, hidx, prev, elem,
@@ -2628,8 +2626,61 @@ static int do_map_elem_traverse_dfs(struct default_engine *engine,
                     elem = elem->next;
                 }
             }
-            tot_fcnt += fcnt;
+            tot_acnt += array_cnt;
             if (find_check) break;
+        }
+    }
+    return tot_acnt;
+}
+
+static int do_map_elem_traverse_dfs_bycnt(struct default_engine *engine,
+                                          map_meta_info *info, map_hash_node *node,
+                                          const uint32_t count, const bool delete,
+                                          map_elem_item **elem_array)
+{
+    int hidx;
+    int rcnt = 0; /* request count */
+    int fcnt, tot_fcnt = 0; /* found count */
+
+    if (node->tot_hash_cnt > 0) {
+        for (hidx = 0; hidx < MAP_HASHTAB_SIZE; hidx++) {
+            if (node->hcnt[hidx] == -1) {
+                map_hash_node *child_node = (map_hash_node *)node->htab[hidx];
+                if (count > 0) rcnt = count - tot_fcnt;
+                fcnt = do_map_elem_traverse_dfs_bycnt(engine, info, child_node, rcnt, delete,
+                                            (elem_array==NULL ? NULL : &elem_array[tot_fcnt]));
+                if (delete) {
+                    if  (child_node->tot_hash_cnt == 0 &&
+                         child_node->tot_elem_cnt < (MAP_MAX_HASHCHAIN_SIZE/2)) {
+                         do_map_node_unlink(engine, info, node, hidx);
+                     }
+                }
+                tot_fcnt += fcnt;
+                if (count > 0 && tot_fcnt >= count)
+                    return tot_fcnt;
+            }
+        }
+    }
+    assert(count == 0 || tot_fcnt < count);
+
+    for (hidx = 0; hidx < MAP_HASHTAB_SIZE; hidx++) {
+        if (node->hcnt[hidx] > 0) {
+            fcnt = 0;
+            map_elem_item *elem = node->htab[hidx];
+            while (elem != NULL) {
+                if (elem_array) {
+                    elem->refcount++;
+                    elem_array[tot_fcnt+fcnt] = elem;
+                }
+                fcnt++;
+                if (delete) do_map_elem_unlink(engine, info, node, hidx, NULL, elem,
+                                               (elem_array==NULL ? ELEM_DELETE_COLL
+                                                                 : ELEM_DELETE_NORMAL));
+                if (count > 0 && (tot_fcnt+fcnt) >= count) break;
+                elem = (delete ? node->htab[hidx] : elem->next);
+            }
+            tot_fcnt += fcnt;
+            if (count > 0 && tot_fcnt >= count) break;
         }
     }
     return tot_fcnt;
@@ -2642,7 +2693,7 @@ static uint32_t do_map_elem_delete(struct default_engine *engine,
     assert(cause == ELEM_DELETE_COLL);
     uint32_t fcnt = 0;
     if (info->root != NULL) {
-//        fant = do_map_elem_traverse_dfs(engine, info, info->root, count, true, NULL);
+        fcnt = do_map_elem_traverse_dfs_bycnt(engine, info, info->root, count, true, NULL);
         if (info->root->tot_hash_cnt == 0 && info->root->tot_elem_cnt == 0) {
             do_map_node_unlink(engine, info, NULL, 0);
         }
@@ -6645,10 +6696,8 @@ ENGINE_ERROR_CODE map_elem_insert(struct default_engine *engine, const char *key
     return ret;
 }
 
-ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
-                                  const char *key, const size_t nkey,
-                                  const char *value, const size_t nbytes,
-                                  const bool drop_if_empty, bool *dropped)
+ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine, const char *key, const size_t nkey,
+                                  map_elem_item *elem, const bool drop_if_empty, bool *dropped)
 {
     hash_item     *it;
     map_meta_info *info;
@@ -6660,8 +6709,7 @@ ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
     ret = do_map_item_find(engine, key, nkey, false, &it);
     if (ret == ENGINE_SUCCESS) { /* it != NULL */
         info = (map_meta_info *)item_get_meta(it);
-        ret = do_map_elem_delete_with_value(engine, info, value, nbytes,
-                                            ELEM_DELETE_NORMAL);
+        ret = do_map_elem_delete_with_value(engine, info, elem, ELEM_DELETE_NORMAL);
         if (ret == ENGINE_SUCCESS) {
             if (info->ccnt == 0 && drop_if_empty) {
                 do_item_unlink(engine, it, ITEM_UNLINK_EMPTY);
