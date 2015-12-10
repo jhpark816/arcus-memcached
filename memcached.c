@@ -1720,6 +1720,14 @@ static void process_bop_mget_complete(conn *c) {
     char delimiter = ',';
     token_t *key_tokens = (token_t *)((char*)c->coll_mkeys + GET_8ALIGN_SIZE(c->coll_lenkeys));
 
+#ifdef COMMAND_LOGGING
+    if (cmdlog_in_use) {
+        if (cmdlog_write(c->client_ip, "bop mget key list:", (char *)c->coll_mkeys, c->coll_lenkeys-2) == false) {
+            cmdlog_in_use = false;
+        }
+    }
+#endif
+
     if ((strncmp((char*)c->coll_mkeys + c->coll_lenkeys - 2, "\r\n", 2) != 0) ||
         (tokenize_keys((char*)c->coll_mkeys, delimiter, c->coll_numkeys, key_tokens) == -1))
     {
@@ -1915,6 +1923,14 @@ static void process_bop_smget_complete(conn *c) {
     token_t *keys_array = (token_t *)(vptr + GET_8ALIGN_SIZE(c->coll_lenkeys));
     char *respptr;
     int   resplen;
+
+#ifdef COMMAND_LOGGING
+    if (cmdlog_in_use) {
+        if (cmdlog_write(c->client_ip, "bop smget ket list:", (char *)c->coll_mkeys, c->coll_lenkeys-2) == false) {
+            cmdlog_in_use = false;
+        }
+    }
+#endif
 #ifdef JHPARK_NEW_SMGET_INTERFACE
     smget_result_t smres;
 
@@ -11109,7 +11125,7 @@ static void process_command(conn *c, char *command)
 
 #ifdef COMMAND_LOGGING
     if (cmdlog_in_use) {
-        if (cmdlog_write(c->client_ip, command) == false) {
+        if (cmdlog_write(c->client_ip, command, NULL, 0) == false) {
             cmdlog_in_use = false;
         }
     }

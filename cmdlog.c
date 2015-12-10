@@ -335,12 +335,13 @@ struct cmd_log_stats *cmdlog_stats()
     return stats;
 }
 
-bool cmdlog_write(char client_ip[], char* command)
+bool cmdlog_write(char client_ip[], char* command, char* mkeys, uint32_t lenkeys)
 {
     struct tm *ptm;
     struct timeval val;
     struct cmd_log_buffer *buffer = &cmdlog.buffer;
     char inputstr[CMDLOG_INPUT_SIZE];
+    uint32_t total_inputlen;
     int inputlen;
 
     if (! cmdlog.on_logging) {
@@ -353,26 +354,41 @@ bool cmdlog_write(char client_ip[], char* command)
     snprintf(inputstr, CMDLOG_INPUT_SIZE, "%02d:%02d:%02d.%06ld %s %s\n",
              ptm->tm_hour, ptm->tm_min, ptm->tm_sec, (long)val.tv_usec, client_ip, command);
     inputlen = strlen(inputstr);
+    total_inputlen = mkeys != NULL ? inputlen + lenkeys + 1 : inputlen;
 
     pthread_mutex_lock(&buffer->lock);
-    if (buffer->head <= buffer->tail && inputlen >= (buffer->size - buffer->tail)) {
+    if (buffer->head <= buffer->tail && total_inputlen >= (buffer->size - buffer->tail)) {
         buffer->last = buffer->tail;
         buffer->tail = 0;
     }
     cmdlog.stats.entered_commands += 1;
     if (buffer->head <= buffer->tail) {
         assert(buffer->last == 0);
-        assert(inputlen < (buffer->size - buffer->tail));
+        assert(total_inputlen < (buffer->size - buffer->tail));
         memcpy(buffer->data + buffer->tail, inputstr, inputlen);
         buffer->tail += inputlen;
+        if (mkeys != NULL) {
+            memcpy(buffer->data + buffer->tail, mkeys, lenkeys);
+            buffer->tail += lenkeys;
+            memcpy(buffer->data + buffer->tail, "\n", 1);
+            buffer->tail += 1;
+            cmdlog.stats.entered_commands -= 1;
+        }
         if ((buffer->tail - buffer->head) >= CMDLOG_WRITE_SIZE) {
             do_cmdlog_flush_wakeup(); /* wake up flush thread */
         }
     } else { /* buffer->head > buffer->tail */
         assert(buffer->last > 0);
-        if (inputlen < (buffer->head - buffer->tail)) {
+        if (total_inputlen < (buffer->head - buffer->tail)) {
             memcpy(buffer->data + buffer->tail, inputstr, inputlen);
             buffer->tail += inputlen;
+            if (mkeys != NULL) {
+                memcpy(buffer->data + buffer->tail, mkeys, lenkeys);
+                buffer->tail += lenkeys;
+                memcpy(buffer->data + buffer->tail, "\n", 1);
+                buffer->tail += 1;
+                cmdlog.stats.entered_commands -= 1;
+            }
         } else {
             cmdlog.stats.skipped_commands += 1;
         }
