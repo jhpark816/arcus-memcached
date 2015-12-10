@@ -9871,42 +9871,32 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
 
         process_mop_get(c, key, nkey, field, flen, delete, drop_if_empty);
     }
-    else if (ntokens >= 5 && (strcmp(subcommand, "mget") == 0))
+    else if (ntokens >= 7 && (strcmp(subcommand, "mget") == 0))
     {
-        int ii = 0;
-        bool delete = false;
-        bool drop_if_empty = false;
-        uint32_t column_count = 0;
+        int ii;
+        char **field;
+        uint32_t lenkeys, numkeys, numfields;
 
-        if (! safe_strtoul(tokens[MOP_KEY_TOKEN].value, &column_count)) {
+        if ((! safe_strtoul(tokens[MOP_KEY_TOKEN].value, &lenkeys)) ||
+            (! safe_strtoul(tokens[MOP_KEY_TOKEN+1].value, &numkeys)) ||
+            (! safe_strtoul(tokens[MOP_KEY_TOKEN+2].value, &numfields))) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
 
-        if (ntokens == column_count*2+5) {
-            if (strcmp(tokens[MOP_KEY_TOKEN+(column_count*2)+1].value, "delete")==0) {
-                delete = true;
-            } else if (strcmp(tokens[MOP_KEY_TOKEN+(column_count*2)+1].value, "drop")==0) {
-                delete = true;
-                drop_if_empty = true;
-            } else {
+        field = (char**)malloc(numfields * sizeof(char*));
+        int read_key_tokens = 5;
+        for(ii = 0; ii < numfields; ii++) {
+            if (tokens[read_key_tokens].value == NULL) {
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
             }
+
+            field[ii] = tokens[read_key_tokens].value;
+            read_key_tokens += 1;
+            printf("%s\n",field[ii]);
         }
 
-        for(ii = 0; ii < column_count; ii++) {
- /*           char *mkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].value;
-            size_t mnkey = tokens[MOP_KEY_TOKEN+(ii*2)+1].length;
-            uint32_t mcount = 0;
-
-            if (! safe_strtoul(tokens[MOP_KEY_TOKEN+ii+2].value, &mcount)) {
-                out_string(c, "CLIENT_ERROR bad command line format");
-                return;
-            }
-            process_mop_get(c, mkey, mnkey, mcount, delete, drop_if_empty);
-*/
-        }
     }
     else
     {
