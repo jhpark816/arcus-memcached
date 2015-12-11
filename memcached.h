@@ -246,6 +246,7 @@ struct thread_stats {
     uint64_t          cmd_mop_insert;
     uint64_t          cmd_mop_delete;
     uint64_t          cmd_mop_get;
+    uint64_t          cmd_mop_mget;
 #endif
     /* btree command stats */
     uint64_t          cmd_bop_create;
@@ -301,6 +302,7 @@ struct thread_stats {
     uint64_t          mop_get_elem_hits;
     uint64_t          mop_get_none_hits;
     uint64_t          mop_get_misses;
+    uint64_t          mop_mget_oks;
 #endif
     /* btree hit & miss stats */
     uint64_t          bop_create_oks;
@@ -523,6 +525,10 @@ struct conn {
     uint32_t     coll_numkeys; /* number of keys */
     uint32_t     coll_lenkeys; /* length of keys */
     void        *coll_mkeys;   /* (comma separated) multiple keys */
+#ifdef MAP_COLLECTION_SUPPORT
+    char       **coll_flist;   /* field list for map */
+    uint32_t     coll_numfields; /* number of fields */
+#endif
 
     /* data for the nread state */
 

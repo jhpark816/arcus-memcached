@@ -822,18 +822,16 @@ static ENGINE_ERROR_CODE default_map_elem_delete(ENGINE_HANDLE* handle, const vo
 }
 
 static ENGINE_ERROR_CODE default_map_elem_get(ENGINE_HANDLE* handle, const void* cookie,
-                                              const void* key, const int nkey, const void* field,
-                                              const int nfield, const bool delete, const bool drop_if_empty,
-                                              eitem** eitem, uint32_t* eitem_count,
-                                              uint32_t* flags, bool* dropped, uint16_t vbucket)
+                                              const void* key, const int nkey, const int numfields,
+                                              const void** flist, const bool delete, const bool drop_if_empty,
+                                              eitem** eitem, uint32_t* eitem_count, bool* dropped, uint16_t vbucket)
 {
     struct default_engine *engine = get_handle(handle);
     ENGINE_ERROR_CODE ret;
     VBUCKET_GUARD(engine, vbucket);
-
     if (delete) ACTION_BEFORE_WRITE(cookie, key, nkey);
-    ret = map_elem_get(engine, key, nkey, field, nfield, delete, drop_if_empty,
-                       (map_elem_item**)eitem, eitem_count, flags, dropped);
+    ret = map_elem_get(engine, key, nkey, numfields, (const char**)flist, delete, drop_if_empty,
+                       (map_elem_item**)eitem, eitem_count, dropped);
     if (delete) ACTION_AFTER_WRITE(cookie, ret);
     return ret;
 }

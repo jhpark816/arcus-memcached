@@ -2630,6 +2630,7 @@ static int do_map_elem_traverse_dfs(struct default_engine *engine,
             if (find_check) break;
         }
     }
+
     return tot_acnt;
 }
 
@@ -2702,17 +2703,23 @@ static uint32_t do_map_elem_delete(struct default_engine *engine,
 }
 
 static uint32_t do_map_elem_get(struct default_engine *engine,
-								map_meta_info *info, const char* field, const size_t nfield, const bool delete,
+								map_meta_info *info, const size_t numfields, const char** field, const bool delete,
                                 map_elem_item **elem_array)
 {
+    int ii;
     uint32_t fcnt = 0;
+    uint32_t array_cnt = 0;
     if (info->root != NULL) {
-        fcnt = do_map_elem_traverse_dfs(engine, info, info->root, field, nfield, delete, elem_array);
+        for(ii = 0; ii < numfields; ii++) {
+            fcnt = do_map_elem_traverse_dfs(engine, info, info->root, field[ii], strlen(field[ii]), delete,
+                                  (elem_array==NULL ? NULL : &elem_array[array_cnt]));
+            array_cnt += fcnt;
+        }
         if (delete && info->root->tot_hash_cnt == 0 && info->root->tot_elem_cnt == 0) {
             do_map_node_unlink(engine, info, NULL, 0);
         }
     }
-    return fcnt;
+    return array_cnt;
 }
 
 static ENGINE_ERROR_CODE do_map_elem_insert(struct default_engine *engine,
@@ -6723,15 +6730,13 @@ ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine, const char *key
 }
 
 ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
-                               const char *key, const size_t nkey, const char *field,
-                               const size_t nfield, const bool delete, const bool drop_if_empty,
-                               map_elem_item **elem_array, uint32_t *elem_count,
-                               uint32_t *flags, bool *dropped)
+                               const char *key, const size_t nkey, const size_t numfields,
+                               const char **field, const bool delete, const bool drop_if_empty,
+                               map_elem_item **elem_array, uint32_t *elem_count, bool *dropped)
 {
     hash_item     *it;
     map_meta_info *info;
     ENGINE_ERROR_CODE ret;
-
     pthread_mutex_lock(&engine->cache_lock);
     ret = do_map_item_find(engine, key, nkey, true, &it);
     if (ret == ENGINE_SUCCESS) {
@@ -6740,7 +6745,7 @@ ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
             if ((info->mflags & COLL_META_FLAG_READABLE) == 0) {
                 ret = ENGINE_UNREADABLE; break;
             }
-            *elem_count = do_map_elem_get(engine, info, field, nfield, delete, elem_array);
+            *elem_count = do_map_elem_get(engine, info, numfields, field, delete, elem_array);
             if (*elem_count > 0) {
                 if (info->ccnt == 0 && drop_if_empty) {
                     assert(delete == true);
@@ -6749,7 +6754,6 @@ ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
                 } else {
                     *dropped = false;
                 }
-                *flags = it->flags;
             } else {
                 ret = ENGINE_ELEM_ENOENT; break;
             }
