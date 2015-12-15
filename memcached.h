@@ -527,7 +527,6 @@ struct conn {
     void        *coll_mkeys;   /* (comma separated) multiple keys */
 #ifdef MAP_COLLECTION_SUPPORT
     char       **coll_flist;   /* field list for map */
-    uint32_t     coll_numfields; /* number of fields */
 #endif
 
     /* data for the nread state */

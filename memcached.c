@@ -754,11 +754,17 @@ static void conn_coll_eitem_free(conn *c) {
         if (c->coll_resps != NULL) {
             free(c->coll_resps); c->coll_resps = NULL;
         }
+        if (c->coll_flist != NULL) {
+            free(c->coll_flist); c->coll_flist = NULL;
+        }
         break;
       case OPERATION_MOP_MGET:
         mc_engine.v1->map_elem_release(mc_engine.v0, c, c->coll_eitem, c->coll_ecount);
         free(c->coll_eitem);
         free(c->coll_mkeys); c->coll_mkeys = NULL;
+        if (c->coll_flist != NULL) {
+            free(c->coll_flist); c->coll_flist = NULL;
+        }
 #endif
       case OPERATION_BOP_INSERT:
       case OPERATION_BOP_UPSERT:
@@ -2055,7 +2061,7 @@ static int make_mop_elem_response(char *bufptr, eitem_info *info)
     /* field */
     if (info->nscore > 0) {
         memcpy(tmpptr, info->score, info->nscore);
-        tmpptr += strlen(tmpptr);
+        tmpptr += (int)info->nscore;
     } else {
         sprintf(tmpptr, "%s", "NOT_FIELD");
         tmpptr += strlen(tmpptr);
@@ -2202,7 +2208,7 @@ static void process_mop_mget_complete(conn *c) {
         uint32_t flags, k, e;
         eitem_info info;
         char *resultptr;
-        char *valuestrp = (char*)elem_array + (c->coll_numkeys * c->coll_numfields * sizeof(eitem*));
+        char *valuestrp = (char*)elem_array + (c->coll_numkeys * c->coll_rcount * sizeof(eitem*));
         int   resultlen;
         int   nvaluestr;
         bool  dropped;
@@ -2213,7 +2219,7 @@ static void process_mop_mget_complete(conn *c) {
         for (k = 0; k < c->coll_numkeys; k++) {
             ret = mc_engine.v1->map_elem_get(mc_engine.v0, c,
                                            key_tokens[k].value, key_tokens[k].length,
-                                           c->coll_numfields, (const void**)c->coll_flist, false, false,
+                                           c->coll_rcount, (const void**)c->coll_flist, false, false,
                                            &elem_array[tot_elem_count], &cur_elem_count, &flags, &dropped, 0);
             if (ret == ENGINE_EWOULDBLOCK) {
                 c->ewouldblock = true;
@@ -2261,7 +2267,7 @@ static void process_mop_mget_complete(conn *c) {
             } else {
                 if (ret == ENGINE_ELEM_ENOENT) {
                     STATS_NONE_HITS(c, mop_get, key_tokens[k].value, key_tokens[k].length);
-                    sprintf(resultptr, " %s\r\n", "NOT_FOUND_ELEMENT");
+                    sprintf(resultptr, " %s\r\n", "NOT_FOUND_FIELD");
                 }
                 else if (ret == ENGINE_KEY_ENOENT || ret == ENGINE_UNREADABLE) {
                     STATS_MISS(c, mop_get, key_tokens[k].value, key_tokens[k].length);
@@ -2320,12 +2326,6 @@ static void process_mop_mget_complete(conn *c) {
         STATS_NOKEY(c, cmd_mop_mget);
         if (ret == ENGINE_EBADVALUE) out_string(c, "CLIENT_ERROR bad data chunk");
         else out_string(c, "SERVER_ERROR internal");
-    }
-
-    /* field list free */
-    if (c->coll_flist != NULL) {
-        free(c->coll_flist);
-        c->coll_flist = NULL;
     }
 
     if (ret != ENGINE_SUCCESS) {
@@ -9679,10 +9679,11 @@ static void process_sop_command(conn *c, token_t *tokens, const size_t ntokens)
 }
 
 #ifdef MAP_COLLECTION_SUPPORT
-static void process_mop_get(conn *c, char *key, size_t nkey, bool delete, bool drop_if_empty)
+static void process_mop_get(conn *c, char *key, size_t nkey, uint32_t count, bool delete, bool drop_if_empty)
 {
     eitem  **elem_array = NULL;
     uint32_t elem_count;
+    uint32_t req_count = count;
     uint32_t flags, i;
     bool     dropped;
     int      need_size;
@@ -9691,13 +9692,14 @@ static void process_mop_get(conn *c, char *key, size_t nkey, bool delete, bool d
 
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
-    need_size = MAX_MAP_SIZE * sizeof(eitem*);
+    if (req_count <= 0 || req_count > MAX_MAP_SIZE) req_count = MAX_MAP_SIZE;
+    need_size = req_count * sizeof(eitem*);
     if ((elem_array = (eitem **)malloc(need_size)) == NULL) {
         out_string(c, "SERVER_ERROR out of memory");
         return;
     }
 
-    ret = mc_engine.v1->map_elem_get(mc_engine.v0, c, key, nkey, c->coll_numfields, (const void**)c->coll_flist,
+    ret = mc_engine.v1->map_elem_get(mc_engine.v0, c, key, nkey, c->coll_rcount, (const void**)c->coll_flist,
                                      delete, drop_if_empty, elem_array, &elem_count, &flags, &dropped, 0);
     if (ret == ENGINE_EWOULDBLOCK) {
         c->ewouldblock = true;
@@ -9769,7 +9771,7 @@ static void process_mop_get(conn *c, char *key, size_t nkey, bool delete, bool d
         break;
     case ENGINE_ELEM_ENOENT:
         STATS_NONE_HITS(c, mop_get, key, nkey);
-        out_string(c, "NOT_FOUND_ELEMENT");
+        out_string(c, "NOT_FOUND_FIELD");
         break;
     case ENGINE_DISCONNECT:
         c->state = conn_closing;
@@ -9784,12 +9786,6 @@ static void process_mop_get(conn *c, char *key, size_t nkey, bool delete, bool d
         STATS_NOKEY(c, cmd_mop_get);
         if (ret == ENGINE_EBADTYPE) out_string(c, "TYPE_MISMATCH");
         else handle_unexpected_errorcode_ascii(c, ret);
-    }
-
-    /* field list free */
-    if (c->coll_flist != NULL) {
-        free(c->coll_flist);
-        c->coll_flist = NULL;
     }
 
     if (ret != ENGINE_SUCCESS && elem_array != NULL) {
@@ -9857,7 +9853,7 @@ static void process_mop_prepare_nread_keys(conn *c, int cmd, uint32_t vlen, uint
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
     int need_size = 0;
 
-    int mapmget_count = c->coll_numkeys * c->coll_numfields;
+    int mapmget_count = c->coll_numkeys * c->coll_rcount;
     int elem_array_size = mapmget_count * sizeof(eitem*);
     int respon_hdr_size = c->coll_numkeys * ((lenstr_size*2)+30);
     int respon_bdy_size = mapmget_count * ((MAX_FIELD_LENG+2) + (lenstr_size+2));
@@ -10049,7 +10045,6 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
     else if (ntokens >= 6 && (strcmp(subcommand, "get") == 0))
     {
         int ii;
-        char **field;
         uint32_t numfields;
         bool delete = false;
         bool drop_if_empty = false;
@@ -10059,8 +10054,10 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
             return;
         }
 
-        field = (char**)malloc(sizeof(char*) * numfields);
-        if (! field) {
+        void *fields = malloc(sizeof(char*) * numfields);
+        if (fields != NULL) {
+            c->coll_flist = fields;
+        } else {
             out_string(c, "SERVER_ERROR failed allocate filed pointer");
             return;
         }
@@ -10071,8 +10068,7 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
             }
-
-            field[ii] = tokens[read_key_tokens].value;
+            c->coll_flist[ii] = tokens[read_key_tokens].value;
             read_key_tokens += 1;
         }
 
@@ -10087,15 +10083,14 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
                 return;
             }
         }
-        c->coll_numfields = numfields;
-        c->coll_flist     = field;
+        c->coll_rcount = numfields;
 
-        process_mop_get(c, key, nkey, delete, drop_if_empty);
+        process_mop_get(c, key, nkey, numfields, delete, drop_if_empty);
+
     }
     else if (ntokens >= 7 && (strcmp(subcommand, "mget") == 0))
     {
         int ii;
-        char **field;
         uint32_t lenkeys, numkeys, numfields;
 
         if ((! safe_strtoul(tokens[MOP_KEY_TOKEN].value, &lenkeys)) ||
@@ -10105,8 +10100,10 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
             return;
         }
 
-        field = (char**)malloc(sizeof(char*) * numfields);
-        if (! field) {
+        void *fields = malloc(sizeof(char*) * numfields);
+        if (fields != NULL) {
+            c->coll_flist = fields;
+        } else {
             out_string(c, "SERVER_ERROR failed allocate filed pointer");
             return;
         }
@@ -10117,16 +10114,14 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
             }
-
-            field[ii] = tokens[read_key_tokens].value;
+            c->coll_flist[ii] = tokens[read_key_tokens].value;
             read_key_tokens += 1;
         }
         lenkeys += 2;
 
         c->coll_numkeys   = numkeys;
         c->coll_lenkeys   = lenkeys;
-        c->coll_numfields = numfields;
-        c->coll_flist     = field;
+        c->coll_rcount    = numfields;
 
         process_mop_prepare_nread_keys(c, (int)OPERATION_MOP_MGET, lenkeys, numkeys, numfields);
     }

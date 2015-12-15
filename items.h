@@ -482,7 +482,7 @@ ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
                                   bool *dropped);
 
 ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
-                               const char *key, const size_t nkey, const size_t numfields,
+                               const char *key, const size_t nkey, const size_t req_count,
                                const char **field, const bool delete, const bool drop_if_empty,
                                map_elem_item **elem_array, uint32_t *elem_count,
                                uint32_t *flags, bool *dropped);

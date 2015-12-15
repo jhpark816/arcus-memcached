@@ -2703,14 +2703,14 @@ static uint32_t do_map_elem_delete(struct default_engine *engine,
 }
 
 static uint32_t do_map_elem_get(struct default_engine *engine,
-								map_meta_info *info, const size_t numfields, const char** field, const bool delete,
+								map_meta_info *info, const size_t req_count, const char** field, const bool delete,
                                 map_elem_item **elem_array)
 {
     int ii;
     uint32_t fcnt = 0;
     uint32_t array_cnt = 0;
     if (info->root != NULL) {
-        for(ii = 0; ii < numfields; ii++) {
+        for(ii = 0; ii < req_count; ii++) {
             fcnt = do_map_elem_traverse_dfs(engine, info, info->root, field[ii], strlen(field[ii]), delete,
                                   (elem_array==NULL ? NULL : &elem_array[array_cnt]));
             array_cnt += fcnt;
@@ -6730,7 +6730,7 @@ ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine, const char *key
 }
 
 ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
-                               const char *key, const size_t nkey, const size_t numfields,
+                               const char *key, const size_t nkey, const size_t req_count,
                                const char **field, const bool delete, const bool drop_if_empty,
                                map_elem_item **elem_array, uint32_t *elem_count,
                                uint32_t *flags, bool *dropped)
@@ -6746,7 +6746,7 @@ ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
             if ((info->mflags & COLL_META_FLAG_READABLE) == 0) {
                 ret = ENGINE_UNREADABLE; break;
             }
-            *elem_count = do_map_elem_get(engine, info, numfields, field, delete, elem_array);
+            *elem_count = do_map_elem_get(engine, info, req_count, field, delete, elem_array);
             if (*elem_count > 0) {
                 if (info->ccnt == 0 && drop_if_empty) {
                     assert(delete == true);
