@@ -2322,6 +2322,12 @@ static void process_mop_mget_complete(conn *c) {
         else out_string(c, "SERVER_ERROR internal");
     }
 
+    /* field list free */
+    if (c->coll_flist != NULL) {
+        free(c->coll_flist);
+        c->coll_flist = NULL;
+    }
+
     if (ret != ENGINE_SUCCESS) {
         if (c->coll_mkeys != NULL) {
             free((void *)c->coll_mkeys);
@@ -9778,6 +9784,12 @@ static void process_mop_get(conn *c, char *key, size_t nkey, bool delete, bool d
         STATS_NOKEY(c, cmd_mop_get);
         if (ret == ENGINE_EBADTYPE) out_string(c, "TYPE_MISMATCH");
         else handle_unexpected_errorcode_ascii(c, ret);
+    }
+
+    /* field list free */
+    if (c->coll_flist != NULL) {
+        free(c->coll_flist);
+        c->coll_flist = NULL;
     }
 
     if (ret != ENGINE_SUCCESS && elem_array != NULL) {
