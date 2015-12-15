@@ -6732,7 +6732,8 @@ ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine, const char *key
 ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
                                const char *key, const size_t nkey, const size_t numfields,
                                const char **field, const bool delete, const bool drop_if_empty,
-                               map_elem_item **elem_array, uint32_t *elem_count, bool *dropped)
+                               map_elem_item **elem_array, uint32_t *elem_count,
+                               uint32_t *flags, bool *dropped)
 {
     hash_item     *it;
     map_meta_info *info;
@@ -6754,6 +6755,7 @@ ENGINE_ERROR_CODE map_elem_get(struct default_engine *engine,
                 } else {
                     *dropped = false;
                 }
+                *flags = it->flags;
             } else {
                 ret = ENGINE_ELEM_ENOENT; break;
             }

@@ -513,6 +513,7 @@ extern "C" {
                                           const bool drop_if_empty,
                                           eitem** eitem,
                                           uint32_t* eitem_count,
+                                          uint32_t* flags,
                                           bool* dropped,
                                           uint16_t vbucket);
 #endif

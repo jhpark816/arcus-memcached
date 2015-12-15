@@ -2199,7 +2199,7 @@ static void process_mop_mget_complete(conn *c) {
     else /* valid key_tokens */
     {
         uint32_t cur_elem_count = 0;
-        uint32_t k, e;
+        uint32_t flags, k, e;
         eitem_info info;
         char *resultptr;
         char *valuestrp = (char*)elem_array + (c->coll_numkeys * c->coll_numfields * sizeof(eitem*));
@@ -2214,7 +2214,7 @@ static void process_mop_mget_complete(conn *c) {
             ret = mc_engine.v1->map_elem_get(mc_engine.v0, c,
                                            key_tokens[k].value, key_tokens[k].length,
                                            c->coll_numfields, (const void**)c->coll_flist, false, false,
-                                           &elem_array[tot_elem_count], &cur_elem_count, &dropped, 0);
+                                           &elem_array[tot_elem_count], &cur_elem_count, &flags, &dropped, 0);
             if (ret == ENGINE_EWOULDBLOCK) {
                 c->ewouldblock = true;
                 ret = ENGINE_SUCCESS;
@@ -2226,7 +2226,7 @@ static void process_mop_mget_complete(conn *c) {
             }
 
             if (ret == ENGINE_SUCCESS) {
-                sprintf(resultptr, " %u %u\r\n", 0, cur_elem_count);
+                sprintf(resultptr, " %u %u\r\n", htonl(flags), cur_elem_count);
                 if ((add_iov(c, valuestrp, nvaluestr) != 0) ||
                     (add_iov(c, key_tokens[k].value, key_tokens[k].length) != 0) ||
                     (add_iov(c, resultptr, strlen(resultptr)) != 0)) {
@@ -9677,7 +9677,7 @@ static void process_mop_get(conn *c, char *key, size_t nkey, bool delete, bool d
 {
     eitem  **elem_array = NULL;
     uint32_t elem_count;
-    uint32_t i;
+    uint32_t flags, i;
     bool     dropped;
     int      need_size;
 
@@ -9692,7 +9692,7 @@ static void process_mop_get(conn *c, char *key, size_t nkey, bool delete, bool d
     }
 
     ret = mc_engine.v1->map_elem_get(mc_engine.v0, c, key, nkey, c->coll_numfields, (const void**)c->coll_flist,
-                                     delete, drop_if_empty, elem_array, &elem_count, &dropped, 0);
+                                     delete, drop_if_empty, elem_array, &elem_count, &flags, &dropped, 0);
     if (ret == ENGINE_EWOULDBLOCK) {
         c->ewouldblock = true;
         ret = ENGINE_SUCCESS;
@@ -9718,7 +9718,7 @@ static void process_mop_get(conn *c, char *key, size_t nkey, bool delete, bool d
             }
             respptr = respbuf;
 
-            sprintf(respptr, "VALUE %u %u\r\n", 0, elem_count);
+            sprintf(respptr, "VALUE %u %u\r\n", htonl(flags), elem_count);
             if (add_iov(c, respptr, strlen(respptr)) != 0) {
                 ret = ENGINE_ENOMEM; break;
             }
