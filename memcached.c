@@ -755,6 +755,10 @@ static void conn_coll_eitem_free(conn *c) {
             free(c->coll_resps); c->coll_resps = NULL;
         }
         break;
+      case OPERATION_MOP_MGET:
+        mc_engine.v1->map_elem_release(mc_engine.v0, c, c->coll_eitem, c->coll_ecount);
+        free(c->coll_eitem);
+        free(c->coll_mkeys); c->coll_mkeys = NULL;
 #endif
       case OPERATION_BOP_INSERT:
       case OPERATION_BOP_UPSERT:
@@ -2051,7 +2055,7 @@ static int make_mop_elem_response(char *bufptr, eitem_info *info)
     /* field */
     if (info->nscore > 0) {
         memcpy(tmpptr, info->score, info->nscore);
-        tmpptr += (int)info->nscore;
+        tmpptr += strlen(tmpptr);
     } else {
         sprintf(tmpptr, "%s", "NOT_FIELD");
         tmpptr += strlen(tmpptr);
@@ -2198,7 +2202,7 @@ static void process_mop_mget_complete(conn *c) {
         uint32_t k, e;
         eitem_info info;
         char *resultptr;
-        char *valuestrp = (char*)elem_array + (c->coll_numkeys * c->coll_numfields + sizeof(eitem*));
+        char *valuestrp = (char*)elem_array + (c->coll_numkeys * c->coll_numfields * sizeof(eitem*));
         int   resultlen;
         int   nvaluestr;
         bool  dropped;
@@ -2226,7 +2230,7 @@ static void process_mop_mget_complete(conn *c) {
                 if ((add_iov(c, valuestrp, nvaluestr) != 0) ||
                     (add_iov(c, key_tokens[k].value, key_tokens[k].length) != 0) ||
                     (add_iov(c, resultptr, strlen(resultptr)) != 0)) {
-                    STATS_NOKEY(c, cmd_bop_get);
+                    STATS_NOKEY(c, cmd_mop_get);
                     ret = ENGINE_ENOMEM; break;
                 }
                 resultptr += strlen(resultptr);
@@ -9708,7 +9712,7 @@ static void process_mop_get(conn *c, char *key, size_t nkey, bool delete, bool d
 
         do {
             need_size = ((2*lenstr_size) + 30) /* response head and tail size */
-                      + (elem_count * ((MAX_FIELD_LENG*2+2) + (lenstr_size+2))); /* response body size */
+                      + (elem_count * ((MAX_FIELD_LENG+2) + (lenstr_size+2))); /* response body size */
             if ((respbuf = (char*)malloc(need_size)) == NULL) {
                 ret = ENGINE_ENOMEM; break;
             }
@@ -9844,7 +9848,7 @@ static void process_mop_prepare_nread_keys(conn *c, int cmd, uint32_t vlen, uint
     int mapmget_count = c->coll_numkeys * c->coll_numfields;
     int elem_array_size = mapmget_count * sizeof(eitem*);
     int respon_hdr_size = c->coll_numkeys * ((lenstr_size*2)+30);
-    int respon_bdy_size = mapmget_count * ((MAX_FIELD_LENG*2+2)+lenstr_size+15);
+    int respon_bdy_size = mapmget_count * ((MAX_FIELD_LENG+2) + (lenstr_size+2));
 
     need_size = elem_array_size + respon_hdr_size + respon_bdy_size;
 
@@ -10075,7 +10079,6 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         c->coll_flist     = field;
 
         process_mop_get(c, key, nkey, delete, drop_if_empty);
-        free(field);
     }
     else if (ntokens >= 7 && (strcmp(subcommand, "mget") == 0))
     {
