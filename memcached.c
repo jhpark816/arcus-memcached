@@ -12064,7 +12064,7 @@ static void process_command(conn *c, char *command)
         process_bop_command(c, tokens, ntokens);
     }
 #ifdef MAP_COLLECTION_SUPPORT
-    else if ((ntokens >= 6) && (strcmp(tokens[COMMAND_TOKEN].value, "mop") == 0))
+    else if ((ntokens >= 5) && (strcmp(tokens[COMMAND_TOKEN].value, "mop") == 0))
     {
         process_mop_command(c, tokens, ntokens);
     }
