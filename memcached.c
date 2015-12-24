@@ -2117,7 +2117,7 @@ static void process_mop_insert_complete(conn *c) {
             STATS_NOKEY(c, cmd_mop_insert);
             if (ret == ENGINE_EBADTYPE) out_string(c, "TYPE_MISMATCH");
             else if (ret == ENGINE_EOVERFLOW) out_string(c, "OVERFLOWED");
-            else if (ret == ENGINE_ELEM_EEXISTS) out_string(c, "ELEMENT_EXISTS");
+            else if (ret == ENGINE_ELEM_EEXISTS) out_string(c, "FIELD_EXISTS");
             else if (ret == ENGINE_PREFIX_ENAME) out_string(c, "CLIENT_ERROR invalid prefix name");
             else if (ret == ENGINE_ENOMEM) out_string(c, "SERVER_ERROR out of memory");
             else handle_unexpected_errorcode_ascii(c, ret);
