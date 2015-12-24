@@ -12,6 +12,7 @@ Map element에 관한 명령은 아래와 같다.
 - [Map element 변경: mop update]()
 - [Map element 삭제: mop delete](command-set-collection.md#sop-delete---set-element-%EC%82%AD%EC%A0%9C)
 - [Map element 조회: mop get](command-set-collection.md#sop-get---set-element-%EC%A1%B0%ED%9A%8C)
+- [하나의 명령으로 여러 b+tree들에 대한 조회를 한번에 수행하는 기능:  mop mget](command-set-collection.md#bop-mget---btree-multiple-get)
 
 ### mop create - Map Collection 생성
 
@@ -39,7 +40,7 @@ Map collection에 하나의 element를 삽입한다.
 Map collection을 생성하면서 하나의 element를 삽입할 수도 있다.
 
 ```
-sop insert <key> <field> <bytes> [create <attributes>] [noreply|pipe]\r\n<data>\r\n
+mop insert <key> <field> <bytes> [create <attributes>] [noreply|pipe]\r\n<data>\r\n
 * <attributes>: <flags> <exptime> <maxcount> [<ovflaction>] [unreadable]
 ```
 
@@ -104,7 +105,7 @@ mop delete <key> <field_count> [<"space separated fields">] [drop] [noreply|pipe
 - \<key\> - 대상 item의 key string
 - \<field_count\> - 삭제할 field 개수를 지정, 0이면 전체 field, element를 의미한다.
 - "space separated fields" - 대상 map의 field list로, 띄어쓰기(" ")로 구분한다. field_count가 0이면 생략 가능하다.
-- drop - field, element 삭제로 인해 empty map이 될 경우, 그 set을 drop할 것인지를 지정한다.
+- drop - field, element 삭제로 인해 empty map이 될 경우, 그 map을 drop할 것인지를 지정한다.
 - noreply or pipe - 명시하면, response string을 전달받지 않는다. 
                     pipe 사용은 [Command Pipelining](/doc/command-pipelining.md)을 참조 바란다.
 
@@ -117,30 +118,31 @@ Response string과 그 의미는 아래와 같다.
 - “TYPE_MISMATCH” - 해당 item이 map colleciton이 아님
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
 
-### sop get - Set Element 조회
+### mop get - Map Field, Element 조회
 
-Set collection에서 N 개의 elements를 조회한다.
+Map collection에서 하나의 field 또는 지정한 field 조건을 만족하는 N개의 element를 조회한다.
 
 ```
-sop get <key> <count> [delete|drop]\r\n
+mop delete <key> <field_count> [<"space separated fields">] [delete|drop]\r\n
 ```
 
 - \<key\> - 대상 item의 key string
-- \<count\> - 조회할 elements 개수를 지정. 0이면 전체 elements를 의미한다.
-- delete or drop - element 조회하면서 그 element를 delete할 것인지
-                   그리고 delete로 인해 empty set이 될 경우 그 set을 drop할 것인지를 지정한다.
+- \<field_count\> - 조회할 field 개수를 지정, 0이면 전체 field, element를 의미한다.
+- "space separated fields" - 대상 map의 field list로, 띄어쓰기(" ")로 구분한다. field_count가 0이면 생략 가능하다.
+- delete or drop - field, element 조회하면서 그 field, element를 delete할 것인지
+                   그리고 delete로 인해 empty map이 될 경우 그 map을 drop할 것인지를 지정한다.
 
 성공 시의 response string은 아래와 같다.
-VALUE 라인의 \<count\>는 조회된 element 개수를 의미한다. 
+VALUE 라인의 \<count\>는 조회된 field 개수를 의미한다. 
 마지막 라인은 END, DELETED, DELETED_DROPPED 중의 하나를 가지며
-각각 element 조회만 수행한 상태, element 조회하고 삭제한 상태,
-element 조회 및 삭제하고 set을 drop한 상태를 의미한다.
+각각 field 조회만 수행한 상태, field 조회하고 삭제한 상태,
+field 조회 및 삭제하고 map을 drop한 상태를 의미한다.
 
 ```
 VALUE <flags> <count>\r\n
-<bytes> <data>\r\n
-<bytes> <data>\r\n
-<bytes> <data>\r\n
+<field> <bytes> <data>\r\n
+<field> <bytes> <data>\r\n
+<field> <bytes> <data>\r\n
 ...
 END|DELETED|DELETED_DROPPED\r\n
 ```
@@ -148,34 +150,56 @@ END|DELETED|DELETED_DROPPED\r\n
 실패 시의 response string과 그 의미는 아래와 같다.
 
 - “NOT_FOUND”	- key miss
-- “NOT_FOUND_ELEMENT”	- element miss (element가 존재하지 않는 상태임)
-- “TYPE_MISMATCH”	- 해당 item이 set collection이 아님
+- “NOT_FOUND_FIELD”	- field miss (field, element가 존재하지 않는 상태임)
+- “TYPE_MISMATCH”	- 해당 item이 map collection이 아님
 - “UNREADABLE” - 해당 item이 unreadable item임
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
 - "SERVER_ERROR out of memory [writing get response]”	- 메모리 부족
 
-### sop exist - Set Element 존재유무 검사
+### mop mget - Set Element 존재유무 검사
 
-Set collection에 특정 element의 존재 유무를 검사한다.
+여러 map들에 대해 동일 조회 조건(field)으로 element들을 한꺼번에 조회한다.
 
 ```
-sop exist <key> <bytes> [pipe]\r\n<data>\r\n
+mop mget <lenkeys> <numkeys> <field_count> <"space separated fields">\r\n
+<”comma separated keys”>\r\n
 ```
 
-- \<key\> - 대상 item의 key string
-- \<bytes\>와 \<data\> - 존재 유무를 검사할 데이터의 길의와 데이터 그 자체 (최대 4KB)
-- pipe - 명시하면, response string을 전달받지 않는다. 
-         [Command Pipelining](/doc/command-pipelining.md)을 참조 바란다.
+- \<”comma separated keys”\> - 대상 map들의 key list로, 콤마(,)로 구분한다.
+- \<lenkeys\>과 \<numkeys> - key list 문자열의 길이와 key 개수를 나타낸다.
+- \<field_count\> - 조회할 field 개수를 지정
+- \<"space separated fields"\> - 대상 map의 field list로, 띄어쓰기(" ")로 구분한다.
 
-Response string과 그 의미는 아래와 같다.
+성공 시의 response string은 아래와 같다.
+조회한 대상 key마다 VALUE 라인이 있으며, 대상 key string과 조회 상태가 나타난다.
+조회 상태는 아래 중의 하나가 되며, 각 의미는 mop get 명령의 response string을 참조 바란다.
 
-- “EXIST" - 성공 (주어진 데이터가 set에 존재)
-- "NOT_EXIST" - 성공 (주어진 데이타가 set에 존재하지 않음)
+```
+VALUE <key> <flags> <ecount>\r\n
+[ELEMENT <field> <bytes> <data>\r\n
+ ...
+ ELEMENT <field> <bytes> <data>\r\n]
+VALUE <key> <flags> <ecount>\r\n
+[ELEMENT <field> <bytes> <data>\r\n
+ ...
+ ELEMENT <field> <bytes> <data>\r\n]
+
+...
+
+VALUE <key> <flags> <ecount>\r\n
+[ELEMENT <field> <bytes> <data>\r\n
+ ...
+ ELEMENT <field> <bytes> <data>\r\n]
+END\r\n
+```
+ 
+실패 시의 response string과 그 의미는 아래와 같다.
+
 - “NOT_FOUND”	- key miss
-- “TYPE_MISMATCH”	- 해당 item이 set collection이 아님
+- “NOT_FOUND_FIELD”	- field miss (field, element가 존재하지 않는 상태임)
+- “TYPE_MISMATCH”	- 해당 item이 map collection이 아님
 - “UNREADABLE” - 해당 item이 unreadable item임
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
-- “CLIENT_ERROR too large value” : 주어진 데이타가 4KB 보다 큼
-- “CLIENT_ERROR bad data chunk” : 주어진 데이티의 길이가 \<bytes\>와 다르거나 “\r\n”으로 끝나지 않음
- 
+- “CLIENT_ERROR bad data chunk”	- comma seperated key list의 길이가 \<lenkeys\>와 다르거나 “\r\n”으로 끝나지 않음
+- "SERVER_ERROR out of memory [writing get response]”	- 메모리 부족
 
