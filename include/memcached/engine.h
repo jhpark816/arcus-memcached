@@ -495,6 +495,14 @@ extern "C" {
                                              item_attr *attrp,
                                              bool *created,
                                              uint16_t vbucket);
+        ENGINE_ERROR_CODE (*map_elem_update)(ENGINE_HANDLE* handle,
+                                             const void* cookie,
+                                             const void* key,
+                                             const int nkey,
+                                             eitem *eitem,
+                                             const void* value,
+                                             const int nbytes,
+                                             uint16_t vbucket);
         ENGINE_ERROR_CODE (*map_elem_delete)(ENGINE_HANDLE* handle,
                                              const void* cookie,
                                              const void* key,

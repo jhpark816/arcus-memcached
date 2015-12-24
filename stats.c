@@ -66,6 +66,7 @@ struct _prefix_stats {
 #ifdef MAP_COLLECTION_SUPPORT
     uint64_t      num_mop_creates;
     uint64_t      num_mop_inserts;
+    uint64_t      num_mop_updates;
     uint64_t      num_mop_deletes;
     uint64_t      num_mop_gets;
 #endif
@@ -90,6 +91,7 @@ struct _prefix_stats {
     uint64_t      num_bop_gbp_hits;
 #ifdef MAP_COLLECTION_SUPPORT
     uint64_t      num_mop_insert_hits;
+    uint64_t      num_mop_update_hits;
     uint64_t      num_mop_delete_hits;
     uint64_t      num_mop_get_hits;
 #endif
@@ -600,6 +602,20 @@ void stats_prefix_record_mop_insert(const char *key, const size_t nkey, const bo
         pfs->num_mop_inserts++;
         if (is_hit) {
             pfs->num_mop_insert_hits++;
+        }
+    }
+    STATS_UNLOCK();
+}
+
+void stats_prefix_record_mop_update(const char *key, const size_t nkey, const bool is_hit) {
+    PREFIX_STATS *pfs;
+
+    STATS_LOCK();
+    pfs = stats_prefix_find(key, nkey);
+    if (NULL != pfs) {
+        pfs->num_mop_updates++;
+        if (is_hit) {
+            pfs->num_mop_update_hits++;
         }
     }
     STATS_UNLOCK();

@@ -806,6 +806,20 @@ static ENGINE_ERROR_CODE default_map_elem_insert(ENGINE_HANDLE* handle, const vo
     return ret;
 }
 
+static ENGINE_ERROR_CODE default_map_elem_update(ENGINE_HANDLE* handle, const void* cookie,
+                                                 const void* key, const int nkey, eitem *eitem,
+                                                 const void* value, const int nbytes, uint16_t vbucket)
+{
+    struct default_engine *engine = get_handle(handle);
+    ENGINE_ERROR_CODE ret;
+    VBUCKET_GUARD(engine, vbucket);
+
+    ACTION_BEFORE_WRITE(cookie, key, nkey);
+    ret = map_elem_update(engine, key, nkey, (map_elem_item*)eitem, value, nbytes, cookie);
+    ACTION_AFTER_WRITE(cookie, ret);
+    return ret;
+}
+
 static ENGINE_ERROR_CODE default_map_elem_delete(ENGINE_HANDLE* handle, const void* cookie,
                                                  const void* key, const int nkey, eitem *eitem,
                                                  const bool drop_if_empty, bool *dropped,
@@ -1328,6 +1342,7 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface, GET_SERVER_API get_server_
          .map_elem_alloc    = default_map_elem_alloc,
          .map_elem_release  = default_map_elem_release,
          .map_elem_insert   = default_map_elem_insert,
+         .map_elem_update   = default_map_elem_update,
          .map_elem_delete   = default_map_elem_delete,
          .map_elem_get      = default_map_elem_get,
 #endif

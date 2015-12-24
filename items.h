@@ -168,6 +168,14 @@ typedef struct _map_meta_info {
     void    *prefix;    /* pointer to prefix meta info */
     map_hash_node *root;
 } map_meta_info;
+
+/* map element position */
+typedef struct _map_elem_posi {
+    map_hash_node *node;
+    uint16_t       hidx;
+    uint16_t       next;
+    bool           fdeq;
+} map_elem_posi;
 #endif
 
 /* btree meta info */
@@ -474,6 +482,12 @@ ENGINE_ERROR_CODE map_elem_insert(struct default_engine *engine,
                                   map_elem_item *elem,
                                   item_attr *attrp,
                                   bool *created, const void *cookie);
+
+ENGINE_ERROR_CODE map_elem_update(struct default_engine *engine,
+                                  const char *key, const size_t nkey,
+                                  map_elem_item *elem,
+                                  const char *value, const int nbytes,
+                                  const void *cookie);
 
 ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine,
                                   const char *key, const size_t nkey,

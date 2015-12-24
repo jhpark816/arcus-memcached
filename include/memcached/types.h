@@ -110,6 +110,7 @@ extern "C" {
         /* map operation */
         OPERATION_MOP_CREATE = 0x80, /**< Map operation with create structure semantics */
         OPERATION_MOP_INSERT,        /**< Map operation with insert element semantics */
+        OPERATION_MOP_UPDATE,        /**< Map operation with update element semantics */
         OPERATION_MOP_DELETE,        /**< Map operation with delete element semantics */
         OPERATION_MOP_GET,           /**< Map operation with get element semantics */
         OPERATION_MOP_MGET,          /**< Map operation with mget element sematices */

@@ -244,6 +244,7 @@ struct thread_stats {
     /* map command stats */
     uint64_t          cmd_mop_create;
     uint64_t          cmd_mop_insert;
+    uint64_t          cmd_mop_update;
     uint64_t          cmd_mop_delete;
     uint64_t          cmd_mop_get;
     uint64_t          cmd_mop_mget;
@@ -296,6 +297,9 @@ struct thread_stats {
     uint64_t          mop_create_oks;
     uint64_t          mop_insert_hits;
     uint64_t          mop_insert_misses;
+    uint64_t          mop_update_hits;
+    uint64_t          mop_update_none_hits;
+    uint64_t          mop_update_misses;
     uint64_t          mop_delete_elem_hits;
     uint64_t          mop_delete_none_hits;
     uint64_t          mop_delete_misses;

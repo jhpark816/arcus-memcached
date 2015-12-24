@@ -35,6 +35,7 @@
                     C(sop_exist_hits) C(sop_exist_misses)
 #ifdef MAP_COLLECTION_SUPPORT
 #define TK_MOPS(C)  C(mop_create_oks) C(mop_insert_hits) C(mop_insert_misses) \
+                    C(mop_update_hits) C(mop_update_none_hits) C(mop_update_misses) \
                     C(mop_delete_elem_hits) C(mop_delete_none_hits) C(mop_delete_misses) \
                     C(mop_get_elem_hits) C(mop_get_none_hits) C(mop_get_misses)
 #endif
