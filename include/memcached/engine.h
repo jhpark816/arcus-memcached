@@ -507,8 +507,10 @@ extern "C" {
                                              const void* cookie,
                                              const void* key,
                                              const int nkey,
-                                             eitem *eitem,
+                                             const int numfields,
+                                             const void** flist,
                                              const bool drop_if_empty,
+                                             uint32_t* del_count,
                                              bool *dropped,
                                              uint16_t vbucket);
         ENGINE_ERROR_CODE (*map_elem_get)(ENGINE_HANDLE* handle,

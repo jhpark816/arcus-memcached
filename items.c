@@ -2521,65 +2521,6 @@ static void do_map_elem_unlink(struct default_engine *engine,
     }
 }
 
-static ENGINE_ERROR_CODE do_map_elem_traverse_delete(struct default_engine *engine,
-                                                     map_meta_info *info, map_hash_node *node,
-                                                     const int hval, const char *val, const int vlen)
-{
-    ENGINE_ERROR_CODE ret;
-
-    int hidx = MAP_GET_HASHIDX(hval, node->hdepth);
-
-    if (node->hcnt[hidx] == -1) {
-        map_hash_node *child_node = node->htab[hidx];
-        ret = do_map_elem_traverse_delete(engine, info, child_node, hval, val, vlen);
-        if (ret == ENGINE_SUCCESS) {
-            if (child_node->tot_hash_cnt == 0 &&
-                child_node->tot_elem_cnt < (MAP_MAX_HASHCHAIN_SIZE/2)) {
-                do_map_node_unlink(engine, info, node, hidx);
-            }
-        }
-    } else {
-        ret = ENGINE_ELEM_ENOENT;
-        if (node->hcnt[hidx] > 0) {
-            map_elem_item *prev = NULL;
-            map_elem_item *elem = node->htab[hidx];
-            while (elem != NULL) {
-                if (map_hash_eq(hval, val, vlen, elem->hval, elem->data, elem->nbytes))
-                    break;
-                prev = elem;
-                elem = elem->next;
-            }
-            if (elem != NULL) {
-                do_map_elem_unlink(engine, info, node, hidx, prev, elem,
-                                   ELEM_DELETE_NORMAL);
-                ret = ENGINE_SUCCESS;
-            }
-        }
-    }
-    return ret;
-}
-
-static ENGINE_ERROR_CODE do_map_elem_delete_with_value(struct default_engine *engine,
-                                                       map_meta_info *info,
-                                                       map_elem_item *elem,
-                                                       enum elem_delete_cause cause)
-{
-    assert(cause == ELEM_DELETE_NORMAL);
-    ENGINE_ERROR_CODE ret;
-    if (info->root != NULL) {
-        int hval = genhash_string_hash(elem->data, elem->nfield);
-        ret = do_map_elem_traverse_delete(engine, info, info->root, hval, (const char*)elem->data, elem->nbytes);
-        if (ret == ENGINE_SUCCESS) {
-            if (info->root->tot_hash_cnt == 0 && info->root->tot_elem_cnt == 0) {
-                do_map_node_unlink(engine, info, NULL, 0);
-            }
-        }
-    } else {
-        ret = ENGINE_ELEM_ENOENT;
-    }
-    return ret;
-}
-
 static map_elem_item *do_map_elem_find_update(map_hash_node *node, const char* field,
                                               const size_t nfield, map_elem_posi *path)
 {
@@ -2732,6 +2673,31 @@ static int do_map_elem_traverse_dfs_bycnt(struct default_engine *engine,
         }
     }
     return tot_fcnt;
+}
+
+static uint32_t do_map_elem_delete_with_field(struct default_engine *engine,
+                                              map_meta_info *info, const size_t req_count,
+                                              const char** field, enum elem_delete_cause cause)
+{
+    assert(cause == ELEM_DELETE_NORMAL);
+
+    int ii;
+    uint32_t fcnt = 0;
+    uint32_t total_delcnt = 0;
+    if (info->root != NULL) {
+        if (req_count == 0) {
+            total_delcnt = do_map_elem_traverse_dfs_bycnt(engine, info, info->root, req_count, true, NULL);
+        } else {
+            for(ii = 0; ii < req_count; ii++) {
+                fcnt = do_map_elem_traverse_dfs(engine, info, info->root, field[ii], strlen(field[ii]), true, NULL);
+                total_delcnt += fcnt;
+            }
+        }
+        if (info->root->tot_hash_cnt == 0 && info->root->tot_elem_cnt == 0) {
+            do_map_node_unlink(engine, info, NULL, 0);
+        }
+    }
+    return total_delcnt;
 }
 
 static ENGINE_ERROR_CODE do_map_elem_replace(struct default_engine *engine, map_meta_info *info,
@@ -6860,7 +6826,8 @@ ENGINE_ERROR_CODE map_elem_update(struct default_engine *engine, const char *key
 }
 
 ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine, const char *key, const size_t nkey,
-                                  map_elem_item *elem, const bool drop_if_empty, bool *dropped)
+                                  const size_t req_count, const char **field, const bool drop_if_empty,
+                                  uint32_t *del_count, bool *dropped)
 {
     hash_item     *it;
     map_meta_info *info;
@@ -6872,13 +6839,23 @@ ENGINE_ERROR_CODE map_elem_delete(struct default_engine *engine, const char *key
     ret = do_map_item_find(engine, key, nkey, false, &it);
     if (ret == ENGINE_SUCCESS) { /* it != NULL */
         info = (map_meta_info *)item_get_meta(it);
-        ret = do_map_elem_delete_with_value(engine, info, elem, ELEM_DELETE_NORMAL);
-        if (ret == ENGINE_SUCCESS) {
-            if (info->ccnt == 0 && drop_if_empty) {
-                do_item_unlink(engine, it, ITEM_UNLINK_EMPTY);
-                *dropped = true;
+        do {
+            if ((info->mflags & COLL_META_FLAG_READABLE) == 0) {
+                ret = ENGINE_UNREADABLE; break;
             }
-        }
+            *del_count = do_map_elem_delete_with_field(engine, info, req_count, field, ELEM_DELETE_NORMAL);
+            if (*del_count > 0) {
+                if (info->ccnt == 0 && drop_if_empty) {
+                    assert(info->root == NULL);
+                    do_item_unlink(engine, it, ITEM_UNLINK_EMPTY);
+                    *dropped = true;
+                } else {
+                    *dropped = false;
+                }
+            } else {
+                ret = ENGINE_ELEM_ENOENT; break;
+            }
+        } while (0);
         do_item_release(engine, it);
     }
     pthread_mutex_unlock(&engine->cache_lock);

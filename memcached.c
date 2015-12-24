@@ -2188,62 +2188,7 @@ static void process_mop_update_complete(conn *c) {
     c->coll_eitem = NULL;
 
 }
-/*
-static void process_mop_delete_complete(conn *c) {
-    assert(c->coll_op == OPERATION_MOP_DELETE);
-    assert(c->coll_eitem != NULL);
-    eitem *elem = (eitem *)c->coll_eitem;
 
-    eitem_info info;
-    mc_engine.v1->get_map_elem_info(mc_engine.v0, c, elem, &info);
-
-    if (strncmp((char*)info.value + info.nbytes - 2, "\r\n", 2) != 0) {
-        out_string(c, "CLIENT_ERROR bad data chunk");
-    } else {
-        bool dropped;
-        ENGINE_ERROR_CODE ret;
-
-        ret = mc_engine.v1->map_elem_delete(mc_engine.v0, c,
-                                            c->coll_key, c->coll_nkey, elem,
-                                            c->coll_drop, &dropped, 0);
-        if (ret == ENGINE_EWOULDBLOCK) {
-            c->ewouldblock = true;
-            ret = ENGINE_SUCCESS;
-        }
-
-        if (settings.detail_enabled) {
-            stats_prefix_record_mop_delete(c->coll_key, c->coll_nkey,
-                                           (ret==ENGINE_SUCCESS || ret==ENGINE_ELEM_ENOENT));
-        }
-
-        switch (ret) {
-        case ENGINE_SUCCESS:
-            STATS_ELEM_HITS(c, mop_delete, c->coll_key, c->coll_nkey);
-            if (dropped == false) out_string(c, "DELETED");
-            else                  out_string(c, "DELETED_DROPPED");
-            break;
-        case ENGINE_ELEM_ENOENT:
-            STATS_NONE_HITS(c, mop_delete, c->coll_key, c->coll_nkey);
-            out_string(c, "NOT_FOUND_ELEMENT");
-            break;
-        case ENGINE_DISCONNECT:
-            c->state = conn_closing;
-            break;
-        case ENGINE_KEY_ENOENT:
-            STATS_MISS(c, mop_delete, c->coll_key, c->coll_nkey);
-            out_string(c, "NOT_FOUND");
-            break;
-        default:
-            STATS_NOKEY(c, cmd_mop_delete);
-            if (ret == ENGINE_EBADTYPE) out_string(c, "TYPE_MISMATCH");
-            else handle_unexpected_errorcode_ascii(c, ret);
-        }
-    }
-
-    mc_engine.v1->map_elem_release(mc_engine.v0, c, &c->coll_eitem, 1);
-    c->coll_eitem = NULL;
-}
-*/
 static void process_mop_mget_complete(conn *c) {
     assert(c->coll_op == OPERATION_MOP_MGET);
     assert(c->coll_eitem != NULL);
@@ -9999,6 +9944,54 @@ static void process_mop_create(conn *c, char *key, size_t nkey, item_attr *attrp
     }
 }
 
+static void process_mop_delete(conn *c, char *key, size_t nkey, uint32_t count, bool drop_if_empty)
+{
+    uint32_t del_count;
+    bool     dropped;
+    ENGINE_ERROR_CODE ret;
+
+    ret = mc_engine.v1->map_elem_delete(mc_engine.v0, c, key, nkey, count,
+                                        (const void**)c->coll_flist, drop_if_empty,
+                                        &del_count, &dropped, 0);
+    if (ret == ENGINE_EWOULDBLOCK) {
+        c->ewouldblock = true;
+        ret = ENGINE_SUCCESS;
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_mop_delete(key, nkey,
+                                       (ret==ENGINE_SUCCESS || ret==ENGINE_ELEM_ENOENT));
+    }
+
+    switch (ret) {
+    case ENGINE_SUCCESS:
+        STATS_ELEM_HITS(c, mop_delete, key, nkey);
+        if (dropped == false) out_string(c, "DELETED");
+        else                  out_string(c, "DELETED_DROPPED");
+        break;
+    case ENGINE_ELEM_ENOENT:
+        STATS_NONE_HITS(c, mop_delete, key, nkey);
+        out_string(c, "NOT_FOUND_FIELD");
+        break;
+    case ENGINE_DISCONNECT:
+        c->state = conn_closing;
+        break;
+    case ENGINE_KEY_ENOENT:
+        STATS_MISS(c, mop_delete, key, nkey);
+        out_string(c, "NOT_FOUND");
+        break;
+    default:
+        STATS_NOKEY(c, cmd_mop_delete);
+        if (ret == ENGINE_EBADTYPE) out_string(c, "TYPE_MISMATCH");
+        else handle_unexpected_errorcode_ascii(c, ret);
+    }
+
+    if (c->coll_flist != NULL) {
+        free((void *)c->coll_flist);
+        c->coll_flist = NULL;
+    }
+}
+
 static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
 {
     assert(c != NULL);
@@ -10099,40 +10092,47 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
     }
     else if ((ntokens >= 6 && ntokens <= 8) && (strcmp(subcommand, "delete") == 0))
     {
-        char *field = tokens[MOP_KEY_TOKEN+1].value;
-        int32_t flen = tokens[MOP_KEY_TOKEN+1].length;
-        int32_t vlen;
+        int ii;
+        uint32_t numfields;
+        bool drop_if_empty = false;
 
         set_pipe_noreply_maybe(c, tokens, ntokens);
-        if (ntokens == 7 && c->noreply == 0) {
+
+        if (! safe_strtoul(tokens[MOP_KEY_TOKEN+1].value, &numfields)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
 
-        c->coll_drop = false;
-
-        if ((! field) || (flen > MAX_FIELD_LENG) || (flen < 0)) {
-            out_string(c, "CLIENT_ERROR bad command line format");
+        void *fields = malloc(sizeof(char*) * numfields);
+        if (fields != NULL) {
+            c->coll_flist = fields;
+        } else {
+            out_string(c, "SERVER_ERROR failed allocate filed pointer");
             return;
         }
 
-        if (! safe_strtol(tokens[MOP_KEY_TOKEN+2].value, &vlen) || vlen < 0) {
-            out_string(c, "CLIENT_ERROR bad command line format");
-            return;
+        int read_key_tokens = 4;
+        for(ii = 0; ii < numfields; ii++) {
+            if (tokens[read_key_tokens].value == NULL) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+            c->coll_flist[ii] = tokens[read_key_tokens].value;
+            read_key_tokens += 1;
         }
-        vlen += 2;
 
-        if ((ntokens == 7 && c->noreply == 0) || (ntokens == 8)) {
-            if (strcmp(tokens[MOP_KEY_TOKEN+2].value, "drop")==0) {
-                c->coll_drop = true;
+        if (ntokens == read_key_tokens + 2) {
+            if (strcmp(tokens[read_key_tokens].value, "drop")==0) {
+                drop_if_empty = true;
             } else {
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
             }
         }
+        c->coll_rcount = numfields;
 
-        if (check_and_handle_pipe_state(c, vlen)) {
-            process_mop_prepare_nread(c, (int)OPERATION_MOP_DELETE, key, nkey, field, flen, vlen);
+        if (check_and_handle_pipe_state(c, 0)) {
+            process_mop_delete(c, key, nkey, numfields, drop_if_empty);
         }
     }
     else if (ntokens >= 5 && (strcmp(subcommand, "get") == 0))
@@ -10179,7 +10179,6 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         c->coll_rcount = numfields;
 
         process_mop_get(c, key, nkey, numfields, delete, drop_if_empty);
-
     }
     else if (ntokens >= 7 && (strcmp(subcommand, "mget") == 0))
     {
