@@ -3,16 +3,16 @@ MAP 명령
 
 Map collection에 관한 명령은 아래와 같다.
 
-- [Map collection 생성: mop create](### mop create - Map Collection 생성)
+- [Map collection 생성: mop create](command-map-collection.md#mop-create---map-collection-생성)
 - Map collection 삭제: delete (기존 key-value item의 삭제 명령을 그대로 사용)
 
 Map element에 관한 명령은 아래와 같다. 
 
-- [Map element 삽입: mop insert](command-set-collection.md#sop-insert---set-element-%EC%82%BD%EC%9E%85)
-- [Map element 변경: mop update]()
-- [Map element 삭제: mop delete](command-set-collection.md#sop-delete---set-element-%EC%82%AD%EC%A0%9C)
-- [Map element 조회: mop get](command-set-collection.md#sop-get---set-element-%EC%A1%B0%ED%9A%8C)
-- [하나의 명령으로 여러 b+tree들에 대한 조회를 한번에 수행하는 기능:  mop mget](command-set-collection.md#bop-mget---btree-multiple-get)
+- [Map element 삽입: mop insert](command-map-collection.md#mop-insert---map-field-element-삽입)
+- [Map element 변경: mop update](command-map-collection.md#mop-update---map-element-변경)
+- [Map element 삭제: mop delete](command-map-collection.md#mop-delete---map-field-element-삭제)
+- [Map element 조회: mop get](command-map-collection.md#mop-get---map-field-element-조회)
+- [하나의 명령으로 여러 b+tree들에 대한 조회를 한번에 수행하는 기능:  mop mget](command-map-collection.md#mop-mget---set-element-존재유무-검사)
 
 ### mop create - Map Collection 생성
 
