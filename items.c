@@ -2831,7 +2831,7 @@ static uint32_t do_map_elem_delete(struct default_engine *engine,
 }
 
 static uint32_t do_map_elem_get(struct default_engine *engine,
-								map_meta_info *info, const size_t req_count, const char** field, const bool delete,
+                                map_meta_info *info, const size_t req_count, const char** field, const bool delete,
                                 map_elem_item **elem_array)
 {
     int ii;

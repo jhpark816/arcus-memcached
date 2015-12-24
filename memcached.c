@@ -10016,20 +10016,20 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
         int32_t flen = tokens[MOP_KEY_TOKEN+1].length;
         int32_t vlen;
 
-		set_pipe_noreply_maybe(c, tokens, ntokens);
+        set_pipe_noreply_maybe(c, tokens, ntokens);
 
-		if ((! field) || (flen > MAX_FIELD_LENG) || (flen < 0)) {
-			out_string(c, "CLIENT_ERROR bad command line format");
-			return;
-		}
+        if ((! field) || (flen > MAX_FIELD_LENG) || (flen < 0)) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
 
-		if ((! safe_strtol(tokens[MOP_KEY_TOKEN+2].value, &vlen)) || (vlen < 0) || (flen < 0)) {
-			out_string(c, "CLIENT_ERROR bad command line format");
-			return;
-		}
-		vlen += 2;
+        if ((! safe_strtol(tokens[MOP_KEY_TOKEN+2].value, &vlen)) || (vlen < 0) || (flen < 0)) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+        vlen += 2;
 
-	    int read_ntokens = MOP_KEY_TOKEN + 3;
+        int read_ntokens = MOP_KEY_TOKEN + 3;
         int post_ntokens = 1 + (c->noreply ? 1 : 0);
         int rest_ntokens = ntokens - read_ntokens - post_ntokens;
 
