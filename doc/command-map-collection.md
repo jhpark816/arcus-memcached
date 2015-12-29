@@ -12,7 +12,7 @@ Map element에 관한 명령은 아래와 같다.
 - [Map element 변경: mop update](command-map-collection.md#mop-update---map-element-변경)
 - [Map element 삭제: mop delete](command-map-collection.md#mop-delete---map-field-element-삭제)
 - [Map element 조회: mop get](command-map-collection.md#mop-get---map-field-element-조회)
-- [하나의 명령으로 여러 b+tree들에 대한 조회를 한번에 수행하는 기능:  mop mget](command-map-collection.md#mop-mget---set-element-존재유무-검사)
+- [하나의 명령으로 여러 map들에 대한 조회를 한번에 수행하는 기능:  mop mget](command-map-collection.md#mop-mget---set-element-존재유무-검사)
 
 ### mop create - Map Collection 생성
 
