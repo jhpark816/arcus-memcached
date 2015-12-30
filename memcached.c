@@ -2117,7 +2117,7 @@ static void process_mop_insert_complete(conn *c) {
             STATS_NOKEY(c, cmd_mop_insert);
             if (ret == ENGINE_EBADTYPE) out_string(c, "TYPE_MISMATCH");
             else if (ret == ENGINE_EOVERFLOW) out_string(c, "OVERFLOWED");
-            else if (ret == ENGINE_ELEM_EEXISTS) out_string(c, "FIELD_EXISTS");
+            else if (ret == ENGINE_ELEM_EEXISTS) out_string(c, "ELEMENT_EXISTS");
             else if (ret == ENGINE_PREFIX_ENAME) out_string(c, "CLIENT_ERROR invalid prefix name");
             else if (ret == ENGINE_ENOMEM) out_string(c, "SERVER_ERROR out of memory");
             else handle_unexpected_errorcode_ascii(c, ret);
@@ -2165,7 +2165,7 @@ static void process_mop_update_complete(conn *c) {
             break;
         case ENGINE_ELEM_ENOENT:
             STATS_NONE_HITS(c, mop_update, c->coll_key, c->coll_nkey);
-            out_string(c, "NOT_FOUND_FIELD");
+            out_string(c, "NOT_FOUND_ELEMENT");
             break;
         case ENGINE_DISCONNECT:
             c->state = conn_closing;
@@ -2270,7 +2270,7 @@ static void process_mop_mget_complete(conn *c) {
             } else {
                 if (ret == ENGINE_ELEM_ENOENT) {
                     STATS_NONE_HITS(c, mop_get, key_tokens[k].value, key_tokens[k].length);
-                    sprintf(resultptr, " %s\r\n", "NOT_FOUND_FIELD");
+                    sprintf(resultptr, " %s\r\n", "NOT_FOUND_ELEMENT");
                 }
                 else if (ret == ENGINE_KEY_ENOENT || ret == ENGINE_UNREADABLE) {
                     STATS_MISS(c, mop_get, key_tokens[k].value, key_tokens[k].length);
@@ -9782,7 +9782,7 @@ static void process_mop_get(conn *c, char *key, size_t nkey, uint32_t count, boo
         break;
     case ENGINE_ELEM_ENOENT:
         STATS_NONE_HITS(c, mop_get, key, nkey);
-        out_string(c, "NOT_FOUND_FIELD");
+        out_string(c, "NOT_FOUND_ELEMENT");
         break;
     case ENGINE_DISCONNECT:
         c->state = conn_closing;
@@ -9971,7 +9971,7 @@ static void process_mop_delete(conn *c, char *key, size_t nkey, uint32_t count, 
         break;
     case ENGINE_ELEM_ENOENT:
         STATS_NONE_HITS(c, mop_delete, key, nkey);
-        out_string(c, "NOT_FOUND_FIELD");
+        out_string(c, "NOT_FOUND_ELEMENT");
         break;
     case ENGINE_DISCONNECT:
         c->state = conn_closing;
