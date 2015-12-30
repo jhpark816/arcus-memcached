@@ -36,8 +36,8 @@ Response string과 그 의미는 아래와 같다.
 
 ### mop insert - Map Field, Element 삽입
 
-Map collection에 하나의 element를 삽입한다.
-Map collection을 생성하면서 하나의 element를 삽입할 수도 있다.
+Map collection에 하나의 field, element를 삽입한다.
+Map collection을 생성하면서 하나의 field, element를 삽입할 수도 있다.
 
 ```
 mop insert <key> <field> <bytes> [create <attributes>] [noreply|pipe]\r\n<data>\r\n
@@ -60,7 +60,7 @@ Response string과 그 의미는 아래와 같다.
 - “NOT_FOUND” - key miss
 - “TYPE_MISMATCH” - 해당 item이 map colleciton이 아님
 - “OVERFLOWED” - overflow 발생
-- "FIELD_EXISTS" - 동일 데이터를 가진 field가 존재. map field uniqueness 위배
+- "ELEMENT_EXISTS" - 동일 데이터를 가진 field가 존재. map field uniqueness 위배
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
 - “CLIENT_ERROR too large value” - 삽입할 데이터가 4KB 보다 큼
 - “CLIENT_ERROR bad data chunk” - 삽입할 데이터 길이가 \<bytes\>와 다르거나 "\r\n"으로 끝나지 않음
@@ -86,7 +86,7 @@ Response string과 그 의미는 아래와 같다.
 
 - "UPDATED" - 성공 (element 변경)
 - “NOT_FOUND” - key miss
-- "NOT_FOUND_FIELD" - field miss
+- "NOT_FOUND_ELEMENT" - field miss
 - “TYPE_MISMATCH” - 해당 item이 map colleciton이 아님
 - “OVERFLOWED” - overflow 발생
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
@@ -114,7 +114,7 @@ Response string과 그 의미는 아래와 같다.
 - "DELETED" - 성공 (field, element 삭제)
 - “DELETED_DROPPED” - 성공 (field, element 삭제하고 collection을 drop한 상태)
 - “NOT_FOUND” - key miss
-- “NOT_FOUND_FIELD” - field miss (삭제할 field, element가 없음)
+- “NOT_FOUND_ELEMENT” - field miss (삭제할 field, element가 없음)
 - “TYPE_MISMATCH” - 해당 item이 map colleciton이 아님
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
 
@@ -150,7 +150,7 @@ END|DELETED|DELETED_DROPPED\r\n
 실패 시의 response string과 그 의미는 아래와 같다.
 
 - “NOT_FOUND”	- key miss
-- “NOT_FOUND_FIELD”	- field miss (field, element가 존재하지 않는 상태임)
+- “NOT_FOUND_ELEMENT”	- field miss (field, element가 존재하지 않는 상태임)
 - “TYPE_MISMATCH”	- 해당 item이 map collection이 아님
 - “UNREADABLE” - 해당 item이 unreadable item임
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
@@ -196,7 +196,7 @@ END\r\n
 실패 시의 response string과 그 의미는 아래와 같다.
 
 - “NOT_FOUND”	- key miss
-- “NOT_FOUND_FIELD”	- field miss (field, element가 존재하지 않는 상태임)
+- “NOT_FOUND_ELEMENT”	- field miss (field, element가 존재하지 않는 상태임)
 - “TYPE_MISMATCH”	- 해당 item이 map collection이 아님
 - “UNREADABLE” - 해당 item이 unreadable item임
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
