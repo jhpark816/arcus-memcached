@@ -10090,7 +10090,7 @@ static void process_mop_command(conn *c, token_t *tokens, const size_t ntokens)
             process_mop_prepare_nread(c, (int)OPERATION_MOP_UPDATE, key, nkey, field, flen, vlen);
         }
     }
-    else if ((ntokens >= 6 && ntokens <= 8) && (strcmp(subcommand, "delete") == 0))
+    else if ((ntokens >= 5) && (strcmp(subcommand, "delete") == 0))
     {
         int ii;
         uint32_t numfields;
