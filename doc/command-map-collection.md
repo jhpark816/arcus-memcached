@@ -123,7 +123,7 @@ Response string과 그 의미는 아래와 같다.
 Map collection에서 하나의 field 또는 지정한 field 조건을 만족하는 N개의 element를 조회한다.
 
 ```
-mop delete <key> <field_count> [<"space separated fields">] [delete|drop]\r\n
+mop get <key> <field_count> [<"space separated fields">] [delete|drop]\r\n
 ```
 
 - \<key\> - 대상 item의 key string
