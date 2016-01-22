@@ -683,6 +683,9 @@ char *stats_prefix_dump(int *length) {
     const char *format = "PREFIX %s "
                          "get %llu hit %llu set %llu del %llu lcs %llu lis %llu lih %llu lds %llu ldh %llu lgs %llu "
                          "lgh %llu scs %llu sis %llu sih %llu sds %llu sdh %llu sgs %llu sgh %llu ses %llu seh %llu "
+#ifdef MAP_COLLECTION_SUPPORT
+                         "mcs %llu mis %llu mih %llu mus %llu muh %llu mds %llu mdh %llu mgs %llu mgh %llu"
+#endif
                          "bcs %llu bis %llu bih %llu bus %llu buh %llu bds %llu bdh %llu bps %llu bph %llu bms %llu "
                          "bmh %llu bgs %llu bgh %llu bns %llu bnh %llu pfs %llu pfh %llu pgs %llu pgh %llu gps %llu "
                          "gph %llu gas %llu sas %llu\r\n";
@@ -712,6 +715,7 @@ char *stats_prefix_dump(int *length) {
     pos = 0;
     for (i = 0; i < PREFIX_HASH_SIZE; i++) {
         for (pfs = prefix_stats[i]; NULL != pfs; pfs = pfs->next) {
+#ifdef MAP_COLLECTION_SUPPORT
             written = snprintf(buf + pos, size-pos, format,
                            (pfs->prefix_len == 0 ? null_prefix_str : pfs->prefix),
                            pfs->num_gets, pfs->num_hits, pfs->num_sets, pfs->num_deletes,
@@ -724,12 +728,11 @@ char *stats_prefix_dump(int *length) {
                            pfs->num_sop_deletes, pfs->num_sop_delete_hits,
                            pfs->num_sop_gets, pfs->num_sop_get_hits,
                            pfs->num_sop_exists, pfs->num_sop_exist_hits,
-#ifdef MAP_COLLECTION_SUPPORT
                            pfs->num_mop_creates,
                            pfs->num_mop_inserts, pfs->num_mop_insert_hits,
+                           pfs->num_mop_updates, pfs->num_mop_update_hits,
                            pfs->num_mop_deletes, pfs->num_mop_delete_hits,
                            pfs->num_mop_gets, pfs->num_mop_get_hits,
-#endif
                            pfs->num_bop_creates,
                            pfs->num_bop_inserts, pfs->num_bop_insert_hits,
                            pfs->num_bop_updates, pfs->num_bop_update_hits,
@@ -742,6 +745,32 @@ char *stats_prefix_dump(int *length) {
                            pfs->num_bop_pwgs, pfs->num_bop_pwg_hits,
                            pfs->num_bop_gbps, pfs->num_bop_gbp_hits,
                            pfs->num_getattrs, pfs->num_setattrs);
+#else
+            written = snprintf(buf + pos, size-pos, format,
+                           (pfs->prefix_len == 0 ? null_prefix_str : pfs->prefix),
+                           pfs->num_gets, pfs->num_hits, pfs->num_sets, pfs->num_deletes,
+                           pfs->num_lop_creates,
+                           pfs->num_lop_inserts, pfs->num_lop_insert_hits,
+                           pfs->num_lop_deletes, pfs->num_lop_delete_hits,
+                           pfs->num_lop_gets, pfs->num_lop_get_hits,
+                           pfs->num_sop_creates,
+                           pfs->num_sop_inserts, pfs->num_sop_insert_hits,
+                           pfs->num_sop_deletes, pfs->num_sop_delete_hits,
+                           pfs->num_sop_gets, pfs->num_sop_get_hits,
+                           pfs->num_sop_exists, pfs->num_sop_exist_hits,
+                           pfs->num_bop_creates,
+                           pfs->num_bop_inserts, pfs->num_bop_insert_hits,
+                           pfs->num_bop_updates, pfs->num_bop_update_hits,
+                           pfs->num_bop_deletes, pfs->num_bop_delete_hits,
+                           pfs->num_bop_incrs, pfs->num_bop_incr_hits,
+                           pfs->num_bop_decrs, pfs->num_bop_decr_hits,
+                           pfs->num_bop_gets, pfs->num_bop_get_hits,
+                           pfs->num_bop_counts, pfs->num_bop_count_hits,
+                           pfs->num_bop_positions, pfs->num_bop_position_hits,
+                           pfs->num_bop_pwgs, pfs->num_bop_pwg_hits,
+                           pfs->num_bop_gbps, pfs->num_bop_gbp_hits,
+                           pfs->num_getattrs, pfs->num_setattrs);
+#endif
             pos += written;
             total_written += written;
             assert(total_written < size);

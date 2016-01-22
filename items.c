@@ -7438,6 +7438,9 @@ ENGINE_ERROR_CODE item_getattr(struct default_engine *engine,
             if (IS_LIST_ITEM(it))       attr_data->type = ITEM_TYPE_LIST;
             else if (IS_SET_ITEM(it))   attr_data->type = ITEM_TYPE_SET;
             else if (IS_BTREE_ITEM(it)) attr_data->type = ITEM_TYPE_BTREE;
+#ifdef MAP_COLLECTION_SUPPORT
+            else if (IS_MAP_ITEM(it))   attr_data->type = ITEM_TYPE_MAP;
+#endif
             else                        attr_data->type = ITEM_TYPE_UNKNOWN;
             /* attribute validation check */
             if (attr_data->type != ITEM_TYPE_BTREE) {
