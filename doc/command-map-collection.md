@@ -156,7 +156,7 @@ END|DELETED|DELETED_DROPPED\r\n
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
 - "SERVER_ERROR out of memory [writing get response]”	- 메모리 부족
 
-### mop mget - Set Element 존재유무 검사
+### mop mget - Map Field, Element 조회
 
 여러 map들에 대해 동일 조회 조건(field)으로 element들을 한꺼번에 조회한다.
 
