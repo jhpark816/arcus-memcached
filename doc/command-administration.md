@@ -5,7 +5,7 @@ Admin & Monitoring 명령
 - SCRUB 명령
 - STATS 명령
 - CONFIG 명령
-- COMMAND LOGGING 명령
+- CMDLOG 명령
 - LQDETECT 명령
 - KEY DUMP 명령
 - HELP 명령
@@ -307,13 +307,25 @@ cmdlog [start [<log_file_path>] | stop | stats]\r\n
 - path는 생략 가능하며, 생략할 경우 default로 지정된다.
 - path는 절대 path, 상대 path, default 지정이 가능하다.
 - path를 직접 지정할 경우 최종 파일이 생성될 디렉터리까지 지정해 주어야 한다.
-- default로 자동 지정할 경우 log file은 command_log 디렉터리 안에 생성된다.
+- default로 자동 지정할 경우 log file은 memcached구동위치/command_log 디렉터리 안에 생성된다.
 - command_log 디렉터리는 자동생성되지 않으며, memcached process가 구동된 위치에 생성해 주어야 한다.
+- 생성되는 log file의 파일명은 11211_20160126_191445_0.log | port_bgndate_bgntime_{n}.log 이다.
 
 start 명령의 결과로 log file에 출력되는 내용은 아래와 같다.
 
 ```
-<time> <client_ip> <command>\n
+---------------------------------------
+format : <time> <client_ip> <command>\n
+---------------------------------------
+
+19:14:45.530198 127.0.0.1 bop insert arcustest-Collection_Btree:vuRYyfqyeP0Egg8daGF72 0x626B65795F6279746541727279323239 0x45464C4147 80 create 0 600 4000
+19:14:45.530387 127.0.0.1 lop insert arcustest-Collection_List:pGhEn6DFv5MixbYObBgp1 -1 64 create 0 600 4000
+19:14:45.530221 127.0.0.1 lop insert arcustest-Collection_List:hhSAED2pFBH9xGqEgAeW1 -1 80 create 0 600 4000
+19:14:45.530334 127.0.0.1 bop insert arcustest-Collection_Btree:RGSXLACxWpKwLPdC86qn0 0x626B65795F6279746541727279303331 0x45464C4147 80 create 0 600 4000
+19:14:45.530385 127.0.0.1 lop insert arcustest-Collection_List:PwFTiFSEWlenireHcxNb2 -1 80 create 0 600 4000
+19:14:45.530407 127.0.0.1 bop insert arcustest-Collection_Btree:P1lfJrJyVFyP0ogrw27h1 0x626B65795F6279746541727279313238 0x45464C4147 101 create 0 600 4000
+19:14:45.530537 127.0.0.1 sop exist arcustest-Collection_Set:gTx8KDPBiufiGN9ArtgG3 81 pipe
+19:14:45.530757 127.0.0.1 sop exist arcustest-Collection_Set:gTx8KDPBiufiGN9ArtgG3 81
 ```
 
 stop 명령은 logging이 완료되기 전 중지하고 싶을 때 사용할 수 있다.
@@ -322,14 +334,14 @@ stats 명령은 가장 최근 수행된(수행 중인) command logging의 상태
 
 ```
 Command logging stats
-The last running time : bgndata_bgntime ~ enddate_endtime
-The number of entered commands : entered_commands
-The number of skipped commands : skipped_commands
-The number of log files : file_count
-The log file name: path/port_bgndate_bgntime_{n}.log
-How command logging stopped : stop by explicit request
-                              stop by command log overflow
-                              stop by disk flush error
+The last running time : 20160126_192729 ~ 20160126_192742               //bgndate_bgntime ~ enddate_endtime
+The number of entered commands : 146783                                 //entered_commands
+The number of skipped commands : 0                                      //skipped_commands
+The number of log files : 1                                             //file_count
+The log file name: /Users/mwjin/Task/temp/11211_20160126_192729_{n}.log //path/file_name
+How command logging stopped : stop by explicit request                  //stop by explicit request
+                                                                          stop by command log overflow
+                                                                          stop by disk flush error
 ```
 
 ### Long query detect 명령
