@@ -6,6 +6,7 @@ Admin & Monitoring 명령
 - STATS 명령
 - CONFIG 명령
 - COMMAND LOGGING 명령
+- LONG QUERY DETECT 명령
 - KEY DUMP 명령
 - HELP 명령
 
@@ -329,6 +330,50 @@ The log file name: path/port_bgndate_bgntime_{n}.log
 How command logging stopped : stop by explicit request
                               stop by command log overflow
                               stop by disk flush error
+```
+
+### Long query detect 명령
+
+Arcus cache server에 입력되는 command 중 처리시간이 오래걸릴 가능성이 있는 요청을 detect 한다.
+start 명령을 시작으로 detection이 종료될 때 까지 대상이 되는 command를 검사하고,
+각 command 별로 detect된 명령어 20개를 샘플로 저장한다. 저장된 샘플은 show 명령을 통해 확인할 수 있다.
+대상이 되는 모든 command가 20개의 샘플 저장이 완료되면 자동 종료한다.
+detect 대상이 되는 command와 각 command의 long query 조건은 아래와 같다.
+```
+1. sop get: entered count >= standard
+2. lop insert: index >= standard
+3. lop delete: delete count + from index >= standard
+4. lop get: get count + from index >= standard
+5. bop delete: access count >= standard
+6. bop get: access count >= standard
+7. bop count: access count >= standard
+8. bop gbp: get count >= standard
+```
+
+lqdetect command는 아래와 같다.
+```
+lqdetect [start [<detect_standard>] | stop | show | stats]\r\n
+```
+\<detect_standard\>는 detect 되는 기준이다. 생략 시 default standard는 4000이다.
+
+start 명령으로 detect된 명령어의 샘플이 출력되는 내용은 아래와 같다.
+```
+<time> <client_ip> <count> <command> <arguments>\n
+```
+
+stop 명령은 detection이 완료되기 전 중지하고 싶을 때 사용할 수 있다.
+
+show 명령은 저장된 명렁어 샘플을 출력할 때 사용할 수 있다.
+
+stats 명령은 가장 최근 수행된(수행 중인) long query detection의 상태를 조회하고 그 결과는 아래와 같다.
+```
+Long query detection stats
+The last running time : bgndata_bgntime ~ enddate_endtime
+The number of total long query commands : detected_commands
+The detection standard : standard
+How long query detection stopped : stop by explicit request
+                                   stop by long query overflow
+                                   is running
 ```
 
 ### Key dump 명령
