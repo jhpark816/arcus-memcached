@@ -10,7 +10,7 @@ sop create <key> <attributes> [noreply]\r\n
 ```
 
 - \<key\> - 대상 item의 key string
-- \<attributes\> - 설정할 item attributes. [Item Attribute 설명](./Chapter-1.-ARCUS-Basic-Concept.md#1-3.-Item-Attributes)을 참조 바란다.
+- \<attributes\> - 설정할 item attributes. [Item Attribute 설명](./Chapter-1.-ARCUS-Basic-Concept.md#1-3-item-attributes)을 참조 바란다.
 - noreply - 명시하면, response string을 전달받지 않는다.
 
 Response string과 그 의미는 아래와 같다.
@@ -20,6 +20,10 @@ Response string과 그 의미는 아래와 같다.
 - "NOT_SUPPORTED" - 지원하지 않음
 - “CLIENT_ERROR bad command line format” - protocol syntax 틀림
 - “SERVER_ERROR out of memory” - 메모리 부족
+
+### delete - Set Collection 삭제
+
+기존 [key-value item의 삭제 명령](./Chapter-2.-Simple-Key-Value-Command.md#2-3-deletion)을 그대로 사용한다. 
 
 ## 4-2. set element 명령
 
@@ -36,7 +40,7 @@ sop insert <key> <bytes> [create <attributes>] [noreply|pipe]\r\n<data>\r\n
 - \<key\> - 대상 item의 key string
 - \<bytes\> - 삽입할 데이터 길이 (trailing 문자인 "\r\n"을 제외한 길이)
 - create \<attributes\> - set collection 없을 시에 set 생성 요청.
-                    [Item Attribute 설명](./Chapter-1.-ARCUS-Basic-Concept.md#1-3.-Item-Attributes)을 참조 바란다.
+                    [Item Attribute 설명](./Chapter-1.-ARCUS-Basic-Concept.md#1-3-item-attributes))을 참조 바란다.
 - noreply or pipe - 명시하면, response string을 전달받지 않는다. 
                     pipe 사용은 [Command Pipelining](./Chapter-7.-Collection-Command-Pipelining.md)을 참조 바란다.
 - \<data\> - 삽입할 데이터 (최대 4KB)

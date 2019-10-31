@@ -1,7 +1,7 @@
 Item attributes를 조회하는 getattr 명령과 변경하는 setattr 명령을 소개한다.
 
 Arcus에서 어떤 item attributes를 제공하는 지를 알고자 한다면,
-[Item Attribute 설명](Chapter-1.-ARCUS-Basic-Concept.md#1-3. Item Attribute)을 참고 바란다.
+[Item Attribute 설명](./Chapter-1.-ARCUS-Basic-Concept.md#1-3-item-attributes))을 참고 바란다.
 
 
 ## 8-1. getattr - Item Attribute 조회
